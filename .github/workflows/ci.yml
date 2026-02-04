@@ -109,6 +109,18 @@ jobs:
 
       - name: OpenAPI contract check
         run: make openapi-check
+
+      - name: Alert routing smoke (observability profile)
+        run: |
+          docker compose --profile observability up -d alert-webhook-sink alertmanager
+          docker compose run --rm -T \
+            -v "$(pwd):/app" \
+            -e PYTHONPATH=/app:/app/src \
+            api-gateway \
+            python tools/alerts_delivery_smoke.py \
+            --alertmanager-url http://alertmanager:9093 \
+            --sink-url http://alert-webhook-sink:9080
+
       - name: Upload cycle reports
         if: always()
         uses: actions/upload-artifact@v4

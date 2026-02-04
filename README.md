@@ -139,12 +139,13 @@ GitHub Actions запускает:
 - security scans (`pip-audit` + `trivy` + `grype`, fail на HIGH/CRITICAL),
 - compose build + healthcheck,
 - unit tests + lint + smoke cycle,
-- OpenAPI contract check.
+- OpenAPI contract check,
+- alert routing smoke (`warning`/`critical` delivery через Alertmanager -> webhook sink).
 
 Release automation:
 - workflow `Release` запускается на тегах формата `v*.*.*`,
 - перед сборкой проверяет release policy (`tag == project.version`, валидный `openapi/openapi.json`),
-- повторно выполняет build/test/lint/smoke/openapi-check,
+- повторно выполняет build/test/lint/smoke/openapi-check + alert routing smoke,
 - собирает release assets (`sdist`, `wheel`, `openapi.json`, `SHA256SUMS`),
 - публикует GitHub Release с автогенерируемыми release notes и provenance attestation.
 
