@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, ProviderError
@@ -39,6 +41,7 @@ _SESSIONS: dict[str, SberJazzSessionState] = {}
 _SESSION_KEY_PREFIX = "connector:sberjazz:session:"
 _SESSION_INDEX_KEY = "connector:sberjazz:sessions"
 _CIRCUIT_BREAKER_KEY = "connector:sberjazz:circuit_breaker"
+_OP_LOCK_KEY_PREFIX = "connector:sberjazz:op_lock:"
 
 
 @dataclass
@@ -85,6 +88,53 @@ def _session_ttl_sec() -> int:
 
 def _session_key(meeting_id: str) -> str:
     return f"{_SESSION_KEY_PREFIX}{meeting_id}"
+
+
+def _op_lock_key(meeting_id: str) -> str:
+    return f"{_OP_LOCK_KEY_PREFIX}{meeting_id}"
+
+
+def _op_lock_ttl_sec() -> int:
+    return max(10, int(getattr(get_settings(), "sberjazz_op_lock_ttl_sec", 60)))
+
+
+def _acquire_op_lock(*, meeting_id: str, token: str) -> bool:
+    return bool(redis_client().set(_op_lock_key(meeting_id), token, nx=True, ex=_op_lock_ttl_sec()))
+
+
+def _release_op_lock(*, meeting_id: str, token: str) -> None:
+    key = _op_lock_key(meeting_id)
+    r = redis_client()
+    current = r.get(key)
+    if current == token:
+        r.delete(key)
+
+
+@contextmanager
+def _meeting_operation_lock(*, meeting_id: str, operation: str):
+    token = uuid4().hex
+    if not _acquire_op_lock(meeting_id=meeting_id, token=token):
+        raise ProviderError(
+            ErrCode.CONNECTOR_PROVIDER_ERROR,
+            "Операция коннектора уже выполняется для meeting",
+            details={"meeting_id": meeting_id, "operation": operation},
+        )
+    try:
+        yield
+    finally:
+        try:
+            _release_op_lock(meeting_id=meeting_id, token=token)
+        except Exception as e:
+            log.warning(
+                "sberjazz_op_lock_release_failed",
+                extra={
+                    "payload": {
+                        "meeting_id": meeting_id,
+                        "operation": operation,
+                        "error": str(e)[:200],
+                    }
+                },
+            )
 
 
 def _save_state_redis(state: SberJazzSessionState) -> None:
@@ -318,7 +368,7 @@ def list_sberjazz_sessions(limit: int = 100) -> list[SberJazzSessionState]:
     return states[: max(1, limit)]
 
 
-def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+def _join_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     _before_connector_call("join")
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
@@ -373,7 +423,12 @@ def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
     )
 
 
-def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+    with _meeting_operation_lock(meeting_id=meeting_id, operation="join"):
+        return _join_sberjazz_meeting_impl(meeting_id)
+
+
+def _leave_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     _before_connector_call("leave")
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
@@ -428,17 +483,23 @@ def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
     )
 
 
+def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+    with _meeting_operation_lock(meeting_id=meeting_id, operation="leave"):
+        return _leave_sberjazz_meeting_impl(meeting_id)
+
+
 def reconnect_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
-    state = get_sberjazz_meeting_state(meeting_id)
-    if state.connected:
-        try:
-            leave_sberjazz_meeting(meeting_id)
-        except ProviderError as e:
-            log.warning(
-                "sberjazz_reconnect_leave_failed",
-                extra={"payload": {"meeting_id": meeting_id, "error": str(e)[:200]}},
-            )
-    return join_sberjazz_meeting(meeting_id)
+    with _meeting_operation_lock(meeting_id=meeting_id, operation="reconnect"):
+        state = get_sberjazz_meeting_state(meeting_id)
+        if state.connected:
+            try:
+                _leave_sberjazz_meeting_impl(meeting_id)
+            except ProviderError as e:
+                log.warning(
+                    "sberjazz_reconnect_leave_failed",
+                    extra={"payload": {"meeting_id": meeting_id, "error": str(e)[:200]}},
+                )
+        return _join_sberjazz_meeting_impl(meeting_id)
 
 
 @dataclass

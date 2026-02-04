@@ -8,6 +8,12 @@ Production-ориентированный backend для транскрибац�
 - Проверка API: `http://localhost:8010/health`
 - Метрики: `http://localhost:8010/metrics`
 
+Минимальный `.env` для старта (остальное имеет безопасные default):
+- `APP_ENV=dev`
+- `AUTH_MODE=api_key`
+- `API_KEYS=dev-user-key`
+- `SERVICE_API_KEYS=dev-service-key`
+
 ## E2E Smoke
 
 - `python3 tools/e2e_local.py`
@@ -62,6 +68,7 @@ SberJazz HTTP resilience:
 - `SBERJAZZ_HTTP_RETRIES`
 - `SBERJAZZ_HTTP_RETRY_BACKOFF_MS`
 - `SBERJAZZ_HTTP_RETRY_STATUSES`
+- `SBERJAZZ_OP_LOCK_TTL_SEC` (защита от параллельных join/reconnect/leave для одной встречи)
 
 ## Storage mode (production)
 

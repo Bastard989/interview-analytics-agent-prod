@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from contextlib import suppress
 
+import pytest
+
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ProviderError
 from interview_analytics_agent.services import sberjazz_service
@@ -12,13 +14,27 @@ class _FakeRedis:
         self._store: dict[str, str] = {}
         self._sets: dict[str, set[str]] = {}
 
-    def set(self, key: str, value: str, ex: int | None = None) -> bool:
+    def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool | None = None,
+    ) -> bool | None:
         _ = ex
+        if nx and key in self._store:
+            return None
         self._store[key] = value
         return True
 
     def get(self, key: str) -> str | None:
         return self._store.get(key)
+
+    def delete(self, key: str) -> int:
+        if key in self._store:
+            del self._store[key]
+            return 1
+        return 0
 
     def sadd(self, key: str, value: str) -> int:
         self._sets.setdefault(key, set()).add(value)
@@ -178,3 +194,23 @@ def test_circuit_breaker_opens_and_blocks_calls(monkeypatch) -> None:
         settings.sberjazz_retries = prev_retries
         settings.sberjazz_cb_failure_threshold = prev_threshold
         settings.sberjazz_cb_open_sec = prev_open_sec
+
+
+def test_join_rejected_when_meeting_lock_is_busy(monkeypatch) -> None:
+    fake_redis = _FakeRedis()
+    fake_connector = _FakeConnector()
+    monkeypatch.setattr(sberjazz_service, "redis_client", lambda: fake_redis)
+    monkeypatch.setattr(
+        sberjazz_service,
+        "_resolve_connector",
+        lambda: ("sberjazz_mock", fake_connector),
+    )
+    sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
+
+    lock_key = sberjazz_service._op_lock_key("meeting-lock")
+    fake_redis.set(lock_key, "already-locked", ex=60, nx=True)
+
+    with pytest.raises(ProviderError) as e:
+        sberjazz_service.join_sberjazz_meeting("meeting-lock")
+    assert "Операция коннектора уже выполняется" in e.value.message
