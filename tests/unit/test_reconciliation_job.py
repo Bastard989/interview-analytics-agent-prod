@@ -44,3 +44,113 @@ def test_reconciliation_job_runs_with_limit(monkeypatch) -> None:
     finally:
         s.reconciliation_enabled = snapshot_enabled
         s.reconciliation_limit = snapshot_limit
+
+
+def test_reconciliation_job_auto_resets_cb_when_healthy(monkeypatch) -> None:
+    s = get_settings()
+    snapshot_enabled = s.reconciliation_enabled
+    snapshot_limit = s.reconciliation_limit
+    snapshot_auto = s.sberjazz_cb_auto_reset_enabled
+    snapshot_min_age = s.sberjazz_cb_auto_reset_min_age_sec
+    reset_calls: list[str] = []
+
+    monkeypatch.setattr(
+        reconciliation_job,
+        "get_sberjazz_circuit_breaker_state",
+        lambda: SimpleNamespace(
+            state="open",
+            consecutive_failures=3,
+            opened_at="2020-01-01T00:00:00+00:00",
+            last_error="timeout",
+            updated_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "get_sberjazz_connector_health",
+        lambda: SimpleNamespace(healthy=True, details={}),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "reset_sberjazz_circuit_breaker",
+        lambda reason: reset_calls.append(reason),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "reconcile_sberjazz_sessions",
+        lambda limit: SimpleNamespace(
+            scanned=1,
+            stale=0,
+            reconnected=0,
+            failed=0,
+            stale_threshold_sec=900,
+            updated_at="2026-02-04T00:00:00+00:00",
+        ),
+    )
+    try:
+        s.reconciliation_enabled = True
+        s.reconciliation_limit = 5
+        s.sberjazz_cb_auto_reset_enabled = True
+        s.sberjazz_cb_auto_reset_min_age_sec = 0
+        reconciliation_job.run()
+        assert reset_calls == ["auto_health_recovered"]
+    finally:
+        s.reconciliation_enabled = snapshot_enabled
+        s.reconciliation_limit = snapshot_limit
+        s.sberjazz_cb_auto_reset_enabled = snapshot_auto
+        s.sberjazz_cb_auto_reset_min_age_sec = snapshot_min_age
+
+
+def test_reconciliation_job_does_not_reset_cb_when_unhealthy(monkeypatch) -> None:
+    s = get_settings()
+    snapshot_enabled = s.reconciliation_enabled
+    snapshot_limit = s.reconciliation_limit
+    snapshot_auto = s.sberjazz_cb_auto_reset_enabled
+    snapshot_min_age = s.sberjazz_cb_auto_reset_min_age_sec
+    reset_calls: list[str] = []
+
+    monkeypatch.setattr(
+        reconciliation_job,
+        "get_sberjazz_circuit_breaker_state",
+        lambda: SimpleNamespace(
+            state="open",
+            consecutive_failures=3,
+            opened_at="2020-01-01T00:00:00+00:00",
+            last_error="timeout",
+            updated_at="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "get_sberjazz_connector_health",
+        lambda: SimpleNamespace(healthy=False, details={"error": "provider_down"}),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "reset_sberjazz_circuit_breaker",
+        lambda reason: reset_calls.append(reason),
+    )
+    monkeypatch.setattr(
+        reconciliation_job,
+        "reconcile_sberjazz_sessions",
+        lambda limit: SimpleNamespace(
+            scanned=1,
+            stale=0,
+            reconnected=0,
+            failed=0,
+            stale_threshold_sec=900,
+            updated_at="2026-02-04T00:00:00+00:00",
+        ),
+    )
+    try:
+        s.reconciliation_enabled = True
+        s.reconciliation_limit = 5
+        s.sberjazz_cb_auto_reset_enabled = True
+        s.sberjazz_cb_auto_reset_min_age_sec = 0
+        reconciliation_job.run()
+        assert reset_calls == []
+    finally:
+        s.reconciliation_enabled = snapshot_enabled
+        s.reconciliation_limit = snapshot_limit
+        s.sberjazz_cb_auto_reset_enabled = snapshot_auto
+        s.sberjazz_cb_auto_reset_min_age_sec = snapshot_min_age

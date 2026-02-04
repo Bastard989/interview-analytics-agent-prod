@@ -8,15 +8,71 @@ Reconciliation job.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.logging import get_project_logger
-from interview_analytics_agent.common.metrics import record_sberjazz_reconcile_result
+from interview_analytics_agent.common.metrics import (
+    record_sberjazz_cb_reset,
+    record_sberjazz_reconcile_result,
+)
 from interview_analytics_agent.services.sberjazz_service import (
     SberJazzReconcileResult,
+    get_sberjazz_circuit_breaker_state,
+    get_sberjazz_connector_health,
     reconcile_sberjazz_sessions,
+    reset_sberjazz_circuit_breaker,
 )
 
 log = get_project_logger()
+
+
+def _parse_opened_at(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _maybe_auto_reset_circuit_breaker() -> None:
+    settings = get_settings()
+    if not bool(getattr(settings, "sberjazz_cb_auto_reset_enabled", True)):
+        return
+
+    state = get_sberjazz_circuit_breaker_state()
+    if state.state != "open":
+        return
+
+    opened = _parse_opened_at(state.opened_at)
+    min_age_sec = max(0, int(getattr(settings, "sberjazz_cb_auto_reset_min_age_sec", 30)))
+    if opened is not None:
+        age_sec = max(0, int((datetime.now(UTC) - opened).total_seconds()))
+        if age_sec < min_age_sec:
+            log.info(
+                "reconciliation_cb_auto_reset_skipped",
+                extra={
+                    "payload": {
+                        "reason": "min_age_not_reached",
+                        "age_sec": age_sec,
+                        "min_age_sec": min_age_sec,
+                    }
+                },
+            )
+            return
+
+    health = get_sberjazz_connector_health()
+    if not health.healthy:
+        log.info(
+            "reconciliation_cb_auto_reset_skipped",
+            extra={"payload": {"reason": "connector_unhealthy", "details": health.details}},
+        )
+        return
+
+    reset_sberjazz_circuit_breaker(reason="auto_health_recovered")
+    record_sberjazz_cb_reset(source="auto", reason="health_recovered")
+    log.info("reconciliation_cb_auto_reset_done")
 
 
 def run(*, limit: int | None = None) -> SberJazzReconcileResult | None:
@@ -27,6 +83,14 @@ def run(*, limit: int | None = None) -> SberJazzReconcileResult | None:
 
     reconcile_limit = int(limit if limit is not None else settings.reconciliation_limit)
     log.info("reconciliation_job_started", extra={"payload": {"limit": reconcile_limit}})
+
+    try:
+        _maybe_auto_reset_circuit_breaker()
+    except Exception as e:
+        log.warning(
+            "reconciliation_cb_auto_reset_failed",
+            extra={"payload": {"err": str(e)[:300]}},
+        )
 
     result = reconcile_sberjazz_sessions(limit=max(1, reconcile_limit))
     record_sberjazz_reconcile_result(

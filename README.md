@@ -70,6 +70,7 @@ SberJazz HTTP resilience:
 - `SBERJAZZ_HTTP_RETRY_BACKOFF_MS`
 - `SBERJAZZ_HTTP_RETRY_STATUSES`
 - `SBERJAZZ_OP_LOCK_TTL_SEC` (защита от параллельных join/reconnect/leave для одной встречи)
+- `SBERJAZZ_CB_AUTO_RESET_ENABLED` / `SBERJAZZ_CB_AUTO_RESET_MIN_AGE_SEC` (self-healing breaker через reconciliation worker)
 
 ## Storage mode (production)
 

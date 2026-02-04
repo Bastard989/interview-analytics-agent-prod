@@ -127,6 +127,12 @@ class Settings(BaseSettings):
     sberjazz_cb_failure_threshold: int = Field(default=5, alias="SBERJAZZ_CB_FAILURE_THRESHOLD")
     sberjazz_cb_open_sec: int = Field(default=60, alias="SBERJAZZ_CB_OPEN_SEC")
     sberjazz_op_lock_ttl_sec: int = Field(default=60, alias="SBERJAZZ_OP_LOCK_TTL_SEC")
+    sberjazz_cb_auto_reset_enabled: bool = Field(
+        default=True, alias="SBERJAZZ_CB_AUTO_RESET_ENABLED"
+    )
+    sberjazz_cb_auto_reset_min_age_sec: int = Field(
+        default=30, alias="SBERJAZZ_CB_AUTO_RESET_MIN_AGE_SEC"
+    )
     sberjazz_session_ttl_sec: int = Field(default=86_400, alias="SBERJAZZ_SESSION_TTL_SEC")
     sberjazz_reconcile_stale_sec: int = Field(default=900, alias="SBERJAZZ_RECONCILE_STALE_SEC")
     reconciliation_enabled: bool = Field(default=True, alias="RECONCILIATION_ENABLED")
