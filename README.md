@@ -134,9 +134,13 @@ GitHub Actions запускает:
 
 Release automation:
 - workflow `Release` запускается на тегах формата `v*.*.*`,
+- перед сборкой проверяет release policy (`tag == project.version`, валидный `openapi/openapi.json`),
 - повторно выполняет build/test/lint/smoke/openapi-check,
 - собирает release assets (`sdist`, `wheel`, `openapi.json`, `SHA256SUMS`),
 - публикует GitHub Release с автогенерируемыми release notes и provenance attestation.
+
+Локальная проверка release policy:
+- `make release-check`
 
 ## Runbooks
 

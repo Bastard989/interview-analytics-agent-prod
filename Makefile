@@ -9,7 +9,7 @@ PYTHON ?= python3
 	compose-up compose-down \
 	fmt lint fix test storage-smoke \
 	cycle cycle-autofix \
-	openapi-gen openapi-check
+	openapi-gen openapi-check release-check
 
 doctor:
 	@echo "== docker ==" && docker version >/dev/null && echo "OK"
@@ -83,3 +83,6 @@ openapi-check:
 		-e PYTHONPATH=/app:/app/src \
 		$(API_SERVICE) \
 		python scripts/check_openapi.py
+
+release-check:
+	$(PYTHON) scripts/check_release.py

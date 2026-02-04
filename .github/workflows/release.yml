@@ -21,6 +21,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Release policy check
+        run: |
+          python scripts/check_release.py --tag "${GITHUB_REF_NAME}"
+
       - name: Compose build
         run: docker compose build
 
