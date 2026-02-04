@@ -42,3 +42,9 @@ class MeetingConnector(Protocol):
     def fetch_recording(self, meeting_id: str) -> dict | None:
         """Получить запись/ссылку на запись после встречи (если есть)."""
         ...
+
+    def fetch_live_chunks(
+        self, meeting_id: str, *, cursor: str | None = None, limit: int = 20
+    ) -> dict | None:
+        """Получить очередную порцию live-чанков (best effort)."""
+        ...

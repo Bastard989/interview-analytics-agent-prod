@@ -50,10 +50,19 @@ def test_internal_chunks_requires_service_auth(monkeypatch, auth_settings) -> No
     auth_settings.service_api_keys = "svc-1"
 
     monkeypatch.setattr(
-        "apps.api_gateway.routers.realtime.check_and_set", lambda *args, **kwargs: True
+        "apps.api_gateway.routers.realtime.ingest_audio_chunk_b64",
+        lambda **kwargs: type(
+            "ChunkIngestResult",
+            (),
+            {
+                "accepted": True,
+                "meeting_id": kwargs["meeting_id"],
+                "seq": kwargs["seq"],
+                "idempotency_key": kwargs.get("idempotency_key") or "idem-1",
+                "blob_key": f"meetings/{kwargs['meeting_id']}/chunks/{kwargs['seq']}.bin",
+            },
+        )(),
     )
-    monkeypatch.setattr("apps.api_gateway.routers.realtime.put_bytes", lambda key, data: None)
-    monkeypatch.setattr("apps.api_gateway.routers.realtime.enqueue_stt", lambda **kwargs: None)
 
     client = _client()
     denied = client.post(
@@ -78,10 +87,19 @@ def test_public_chunks_allows_user_auth(monkeypatch, auth_settings) -> None:
     auth_settings.service_api_keys = "svc-1"
 
     monkeypatch.setattr(
-        "apps.api_gateway.routers.realtime.check_and_set", lambda *args, **kwargs: True
+        "apps.api_gateway.routers.realtime.ingest_audio_chunk_b64",
+        lambda **kwargs: type(
+            "ChunkIngestResult",
+            (),
+            {
+                "accepted": True,
+                "meeting_id": kwargs["meeting_id"],
+                "seq": kwargs["seq"],
+                "idempotency_key": kwargs.get("idempotency_key") or "idem-2",
+                "blob_key": f"meetings/{kwargs['meeting_id']}/chunks/{kwargs['seq']}.bin",
+            },
+        )(),
     )
-    monkeypatch.setattr("apps.api_gateway.routers.realtime.put_bytes", lambda key, data: None)
-    monkeypatch.setattr("apps.api_gateway.routers.realtime.enqueue_stt", lambda **kwargs: None)
 
     client = _client()
     resp = client.post("/v1/meetings/m-2/chunks", json=_payload(), headers={"X-API-Key": "user-1"})

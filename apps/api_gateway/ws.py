@@ -21,7 +21,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, UnauthorizedError
-from interview_analytics_agent.common.ids import new_idempotency_key
 from interview_analytics_agent.common.logging import get_project_logger
 from interview_analytics_agent.common.security import (
     AuthContext,
@@ -30,10 +29,8 @@ from interview_analytics_agent.common.security import (
     require_auth,
 )
 from interview_analytics_agent.common.utils import b64_decode, safe_dict
-from interview_analytics_agent.queue.dispatcher import enqueue_stt
-from interview_analytics_agent.queue.idempotency import check_and_set
 from interview_analytics_agent.queue.redis import redis_client
-from interview_analytics_agent.storage.blob import put_bytes
+from interview_analytics_agent.services.chunk_ingest_service import ingest_audio_chunk_bytes
 
 log = get_project_logger()
 
@@ -252,15 +249,8 @@ async def _websocket_endpoint_impl(ws: WebSocket, *, service_only: bool) -> None
                 forward_task = asyncio.create_task(_forward_pubsub_to_ws(ws, meeting_id))
 
             seq = int(event.get("seq", 0))
-            sample_rate = int(event.get("sample_rate", 16000))
-            codec = str(event.get("codec", "pcm"))
-            channels = int(event.get("channels", 1))
             content_b64 = event.get("content_b64", "")
-
-            idem_key = event.get("idempotency_key") or new_idempotency_key("ws")
-            if not check_and_set("audio_chunk", meeting_id, idem_key):
-                # Дубликат — игнорируем молча
-                continue
+            idem_key = event.get("idempotency_key")
 
             try:
                 audio_bytes = b64_decode(content_b64)
@@ -276,13 +266,18 @@ async def _websocket_endpoint_impl(ws: WebSocket, *, service_only: bool) -> None
                 )
                 continue
 
-            # Сохраняем в S3
-            blob_key = f"meetings/{meeting_id}/chunks/{seq}.bin"
             try:
-                put_bytes(blob_key, audio_bytes)
+                result = ingest_audio_chunk_bytes(
+                    meeting_id=meeting_id,
+                    seq=seq,
+                    audio_bytes=audio_bytes,
+                    idempotency_key=idem_key,
+                    idempotency_scope="audio_chunk_ws",
+                    idempotency_prefix="ws",
+                )
             except Exception as e:
                 log.error(
-                    "storage_put_failed",
+                    "ws_ingest_failed",
                     extra={"meeting_id": meeting_id, "payload": {"err": str(e)[:200]}},
                 )
                 await ws.send_text(
@@ -296,8 +291,8 @@ async def _websocket_endpoint_impl(ws: WebSocket, *, service_only: bool) -> None
                 )
                 continue
 
-            # Ставим STT задачу
-            enqueue_stt(meeting_id=meeting_id, chunk_seq=seq, blob_key=blob_key)
+            if result.is_duplicate:
+                continue
 
     except WebSocketDisconnect:
         pass

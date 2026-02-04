@@ -23,6 +23,7 @@ from interview_analytics_agent.connectors.base import MeetingConnector
 from interview_analytics_agent.connectors.salutejazz.adapter import SaluteJazzConnector
 from interview_analytics_agent.connectors.salutejazz.mock import MockSaluteJazzConnector
 from interview_analytics_agent.queue.redis import redis_client
+from interview_analytics_agent.services.chunk_ingest_service import ingest_audio_chunk_b64
 
 log = get_project_logger()
 
@@ -42,6 +43,8 @@ _SESSION_KEY_PREFIX = "connector:sberjazz:session:"
 _SESSION_INDEX_KEY = "connector:sberjazz:sessions"
 _CIRCUIT_BREAKER_KEY = "connector:sberjazz:circuit_breaker"
 _OP_LOCK_KEY_PREFIX = "connector:sberjazz:op_lock:"
+_LIVE_CURSOR_KEY_PREFIX = "connector:sberjazz:live_cursor:"
+_LIVE_SEQ_KEY_PREFIX = "connector:sberjazz:live_seq:"
 
 
 @dataclass
@@ -54,6 +57,16 @@ class SberJazzCircuitBreakerState:
 
 
 _CIRCUIT_BREAKER: SberJazzCircuitBreakerState | None = None
+
+
+@dataclass
+class SberJazzLivePullResult:
+    scanned: int
+    connected: int
+    pulled: int
+    ingested: int
+    failed: int
+    updated_at: str
 
 
 def _now_iso() -> str:
@@ -88,6 +101,14 @@ def _session_ttl_sec() -> int:
 
 def _session_key(meeting_id: str) -> str:
     return f"{_SESSION_KEY_PREFIX}{meeting_id}"
+
+
+def _live_cursor_key(meeting_id: str) -> str:
+    return f"{_LIVE_CURSOR_KEY_PREFIX}{meeting_id}"
+
+
+def _live_seq_key(meeting_id: str) -> str:
+    return f"{_LIVE_SEQ_KEY_PREFIX}{meeting_id}"
 
 
 def _op_lock_key(meeting_id: str) -> str:
@@ -174,6 +195,35 @@ def _save_state(state: SberJazzSessionState) -> SberJazzSessionState:
             extra={"payload": {"meeting_id": state.meeting_id, "error": str(e)[:200]}},
         )
     return state
+
+
+def _load_live_cursor(meeting_id: str) -> str | None:
+    raw = redis_client().get(_live_cursor_key(meeting_id))
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
+def _save_live_cursor(meeting_id: str, cursor: str) -> None:
+    redis_client().set(_live_cursor_key(meeting_id), cursor, ex=_session_ttl_sec())
+
+
+def _next_live_seq(meeting_id: str) -> int:
+    return int(redis_client().incr(_live_seq_key(meeting_id)))
+
+
+def _touch_connected_state(meeting_id: str) -> None:
+    prev = get_sberjazz_meeting_state(meeting_id)
+    state = SberJazzSessionState(
+        meeting_id=prev.meeting_id,
+        provider=prev.provider,
+        connected=True,
+        attempts=prev.attempts,
+        last_error=prev.last_error,
+        updated_at=_now_iso(),
+    )
+    _save_state(state)
 
 
 def get_sberjazz_meeting_state(meeting_id: str) -> SberJazzSessionState:
@@ -574,6 +624,106 @@ def reconcile_sberjazz_sessions(limit: int = 200) -> SberJazzReconcileResult:
         reconnected=reconnected,
         failed=failed,
         stale_threshold_sec=stale_threshold_sec,
+        updated_at=_now_iso(),
+    )
+
+
+def _normalize_chunk_seq(meeting_id: str, raw_seq: object | None) -> int:
+    if isinstance(raw_seq, int) and raw_seq >= 0:
+        return raw_seq
+    if isinstance(raw_seq, str) and raw_seq.isdigit():
+        return int(raw_seq)
+    return _next_live_seq(meeting_id)
+
+
+def _pull_live_for_meeting(meeting_id: str, *, batch_limit: int) -> tuple[int, int]:
+    provider_name = (get_settings().meeting_connector_provider or "").strip().lower()
+    if provider_name in {"", "none"}:
+        return 0, 0
+
+    _provider, connector = _resolve_connector()
+
+    fetch_fn = getattr(connector, "fetch_live_chunks", None)
+    if not callable(fetch_fn):
+        return 0, 0
+
+    cursor = _load_live_cursor(meeting_id)
+    payload = fetch_fn(meeting_id, cursor=cursor, limit=max(1, int(batch_limit))) or {}
+    if not isinstance(payload, dict):
+        return 0, 0
+
+    chunks = payload.get("chunks")
+    if not isinstance(chunks, list):
+        chunks = []
+
+    next_cursor_raw = payload.get("next_cursor")
+    next_cursor = str(next_cursor_raw).strip() if next_cursor_raw is not None else None
+    if next_cursor:
+        _save_live_cursor(meeting_id, next_cursor)
+
+    pulled = 0
+    ingested = 0
+    for idx, chunk in enumerate(chunks):
+        if not isinstance(chunk, dict):
+            continue
+        content_b64 = str(chunk.get("content_b64") or "").strip()
+        if not content_b64:
+            continue
+        seq = _normalize_chunk_seq(meeting_id, chunk.get("seq"))
+        chunk_id = str(
+            chunk.get("id") or chunk.get("chunk_id") or f"{next_cursor or cursor or 'none'}:{idx}"
+        )
+        result = ingest_audio_chunk_b64(
+            meeting_id=meeting_id,
+            seq=seq,
+            content_b64=content_b64,
+            idempotency_key=chunk_id,
+            idempotency_scope="audio_chunk_connector_live",
+            idempotency_prefix="sj-live",
+        )
+        pulled += 1
+        if not result.is_duplicate:
+            ingested += 1
+
+    if pulled > 0:
+        _touch_connected_state(meeting_id)
+    return pulled, ingested
+
+
+def pull_sberjazz_live_chunks(
+    *, limit_sessions: int = 100, batch_limit: int = 20
+) -> SberJazzLivePullResult:
+    sessions = list_sberjazz_sessions(limit=max(1, int(limit_sessions)))
+    scanned = 0
+    connected = 0
+    pulled = 0
+    ingested = 0
+    failed = 0
+
+    for state in sessions:
+        scanned += 1
+        if not state.connected:
+            continue
+        connected += 1
+        try:
+            m_pulled, m_ingested = _pull_live_for_meeting(
+                state.meeting_id, batch_limit=max(1, int(batch_limit))
+            )
+            pulled += m_pulled
+            ingested += m_ingested
+        except Exception as e:
+            failed += 1
+            log.warning(
+                "sberjazz_live_pull_failed",
+                extra={"payload": {"meeting_id": state.meeting_id, "error": str(e)[:300]}},
+            )
+
+    return SberJazzLivePullResult(
+        scanned=scanned,
+        connected=connected,
+        pulled=pulled,
+        ingested=ingested,
+        failed=failed,
         updated_at=_now_iso(),
     )
 

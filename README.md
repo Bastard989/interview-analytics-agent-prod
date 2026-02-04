@@ -37,6 +37,7 @@ Production-ориентированный backend для транскрибац�
 HTTP ingest контуры:
 - `/v1/meetings/{meeting_id}/chunks` — пользовательский/общий ingest.
 - `/v1/internal/meetings/{meeting_id}/chunks` — только service-auth ingest (внутренний контур).
+- Коннекторный live-ingest использует тот же ingest service/path (единая точка постановки chunk -> STT).
 
 ## Режимы авторизации
 
@@ -75,6 +76,8 @@ Security audit логи:
 - `worker-reconciliation` запускает авто-reconnect stale connector-сессий.
 - Настройки: `RECONCILIATION_ENABLED`, `RECONCILIATION_INTERVAL_SEC`, `RECONCILIATION_LIMIT`,
   `SBERJAZZ_RECONCILE_STALE_SEC`.
+- Также выполняет live pull по активным connector-сессиям:
+  `SBERJAZZ_LIVE_PULL_ENABLED`, `SBERJAZZ_LIVE_PULL_BATCH_LIMIT`, `SBERJAZZ_LIVE_PULL_SESSIONS_LIMIT`.
 
 ## Startup readiness (prod guardrail)
 

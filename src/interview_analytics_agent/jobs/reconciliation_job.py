@@ -20,6 +20,7 @@ from interview_analytics_agent.services.sberjazz_service import (
     SberJazzReconcileResult,
     get_sberjazz_circuit_breaker_state,
     get_sberjazz_connector_health,
+    pull_sberjazz_live_chunks,
     reconcile_sberjazz_sessions,
     reset_sberjazz_circuit_breaker,
 )
@@ -75,6 +76,37 @@ def _maybe_auto_reset_circuit_breaker() -> None:
     log.info("reconciliation_cb_auto_reset_done")
 
 
+def _maybe_pull_live_chunks(*, reconcile_limit: int) -> None:
+    settings = get_settings()
+    if not bool(getattr(settings, "sberjazz_live_pull_enabled", True)):
+        return
+
+    sessions_limit = max(
+        1,
+        int(
+            getattr(
+                settings,
+                "sberjazz_live_pull_sessions_limit",
+                reconcile_limit,
+            )
+        ),
+    )
+    batch_limit = max(1, int(getattr(settings, "sberjazz_live_pull_batch_limit", 20)))
+    result = pull_sberjazz_live_chunks(limit_sessions=sessions_limit, batch_limit=batch_limit)
+    log.info(
+        "reconciliation_live_pull_finished",
+        extra={
+            "payload": {
+                "scanned": result.scanned,
+                "connected": result.connected,
+                "pulled": result.pulled,
+                "ingested": result.ingested,
+                "failed": result.failed,
+            }
+        },
+    )
+
+
 def run(*, limit: int | None = None) -> SberJazzReconcileResult | None:
     settings = get_settings()
     if not settings.reconciliation_enabled:
@@ -99,6 +131,13 @@ def run(*, limit: int | None = None) -> SberJazzReconcileResult | None:
         failed=result.failed,
         reconnected=result.reconnected,
     )
+    try:
+        _maybe_pull_live_chunks(reconcile_limit=reconcile_limit)
+    except Exception as e:
+        log.warning(
+            "reconciliation_live_pull_failed",
+            extra={"payload": {"err": str(e)[:300]}},
+        )
     log.info(
         "reconciliation_job_finished",
         extra={

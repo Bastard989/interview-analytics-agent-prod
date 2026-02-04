@@ -43,6 +43,12 @@ class _FakeRedis:
     def smembers(self, key: str) -> set[str]:
         return self._sets.get(key, set())
 
+    def incr(self, key: str) -> int:
+        cur = int(self._store.get(key, "0"))
+        nxt = cur + 1
+        self._store[key] = str(nxt)
+        return nxt
+
 
 class _FakeConnector:
     def __init__(self) -> None:
@@ -60,6 +66,12 @@ class _FakeConnector:
     def fetch_recording(self, meeting_id: str):
         _ = meeting_id
         return None
+
+    def fetch_live_chunks(
+        self, meeting_id: str, *, cursor: str | None = None, limit: int = 20
+    ) -> dict | None:
+        _ = meeting_id, cursor, limit
+        return {"chunks": [], "next_cursor": cursor}
 
 
 def test_join_state_persisted_and_readable_from_redis(monkeypatch) -> None:
@@ -214,3 +226,49 @@ def test_join_rejected_when_meeting_lock_is_busy(monkeypatch) -> None:
     with pytest.raises(ProviderError) as e:
         sberjazz_service.join_sberjazz_meeting("meeting-lock")
     assert "Операция коннектора уже выполняется" in e.value.message
+
+
+def test_pull_live_chunks_ingests_and_saves_cursor(monkeypatch) -> None:
+    fake_redis = _FakeRedis()
+    fake_connector = _FakeConnector()
+    monkeypatch.setattr(sberjazz_service, "redis_client", lambda: fake_redis)
+    monkeypatch.setattr(
+        sberjazz_service,
+        "_resolve_connector",
+        lambda: ("sberjazz_mock", fake_connector),
+    )
+    sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
+    sberjazz_service._SESSIONS["m-live-1"] = sberjazz_service.SberJazzSessionState(
+        meeting_id="m-live-1",
+        provider="sberjazz_mock",
+        connected=True,
+        attempts=1,
+        last_error=None,
+        updated_at="2020-01-01T00:00:00+00:00",
+    )
+
+    def _fetch_live_chunks(meeting_id: str, *, cursor: str | None = None, limit: int = 20):
+        _ = meeting_id, cursor, limit
+        return {
+            "chunks": [{"id": "ch-1", "seq": 7, "content_b64": "YQ=="}],  # a
+            "next_cursor": "cursor-2",
+        }
+
+    monkeypatch.setattr(fake_connector, "fetch_live_chunks", _fetch_live_chunks)
+    calls: list[tuple[str, int, str]] = []
+    monkeypatch.setattr(
+        sberjazz_service,
+        "ingest_audio_chunk_b64",
+        lambda **kwargs: (
+            calls.append((kwargs["meeting_id"], kwargs["seq"], kwargs["idempotency_key"]))
+            or type("ChunkIngestResult", (), {"is_duplicate": False})()
+        ),
+    )
+
+    result = sberjazz_service.pull_sberjazz_live_chunks(limit_sessions=10, batch_limit=10)
+    assert result.connected == 1
+    assert result.pulled == 1
+    assert result.ingested == 1
+    assert calls == [("m-live-1", 7, "ch-1")]
+    assert fake_redis.get(sberjazz_service._live_cursor_key("m-live-1")) == "cursor-2"

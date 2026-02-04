@@ -21,3 +21,9 @@ class MockSaluteJazzConnector(MeetingConnector):
 
     def fetch_recording(self, meeting_id: str):
         return {"type": "audio", "where": "s3://mock", "duration_sec": 0}
+
+    def fetch_live_chunks(
+        self, meeting_id: str, *, cursor: str | None = None, limit: int = 20
+    ) -> dict | None:
+        _ = meeting_id, cursor, limit
+        return {"chunks": [], "next_cursor": cursor}

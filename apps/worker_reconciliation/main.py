@@ -31,6 +31,8 @@ def main() -> None:
                 "enabled": bool(settings.reconciliation_enabled),
                 "interval_sec": interval_sec,
                 "limit": int(settings.reconciliation_limit),
+                "live_pull_enabled": bool(settings.sberjazz_live_pull_enabled),
+                "live_pull_batch_limit": int(settings.sberjazz_live_pull_batch_limit),
             }
         },
     )

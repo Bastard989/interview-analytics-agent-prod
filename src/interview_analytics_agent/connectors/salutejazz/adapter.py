@@ -65,7 +65,14 @@ class SaluteJazzConnector(MeetingConnector):
     def _should_retry_status(self, status_code: int) -> bool:
         return status_code in self.http_retry_statuses
 
-    def _request(self, method: str, path: str, *, payload: dict[str, Any] | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict:
         if not self.base_url:
             raise ProviderError(
                 ErrCode.CONNECTOR_PROVIDER_ERROR,
@@ -87,6 +94,7 @@ class SaluteJazzConnector(MeetingConnector):
                     method=method.upper(),
                     url=url,
                     json=payload,
+                    params=params,
                     headers=headers,
                     timeout=self.timeout_sec,
                 )
@@ -162,3 +170,12 @@ class SaluteJazzConnector(MeetingConnector):
         data = self._request("GET", f"/api/v1/meetings/{meeting_id}/recording")
         log.info("sberjazz_fetch_recording_ok", extra={"payload": {"meeting_id": meeting_id}})
         return data or None
+
+    def fetch_live_chunks(
+        self, meeting_id: str, *, cursor: str | None = None, limit: int = 20
+    ) -> dict | None:
+        params: dict[str, Any] = {"limit": max(1, int(limit))}
+        if cursor:
+            params["cursor"] = cursor
+        data = self._request("GET", f"/api/v1/meetings/{meeting_id}/live-chunks", params=params)
+        return data or {}

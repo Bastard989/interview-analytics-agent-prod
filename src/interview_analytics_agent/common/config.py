@@ -136,6 +136,11 @@ class Settings(BaseSettings):
     )
     sberjazz_session_ttl_sec: int = Field(default=86_400, alias="SBERJAZZ_SESSION_TTL_SEC")
     sberjazz_reconcile_stale_sec: int = Field(default=900, alias="SBERJAZZ_RECONCILE_STALE_SEC")
+    sberjazz_live_pull_enabled: bool = Field(default=True, alias="SBERJAZZ_LIVE_PULL_ENABLED")
+    sberjazz_live_pull_batch_limit: int = Field(default=20, alias="SBERJAZZ_LIVE_PULL_BATCH_LIMIT")
+    sberjazz_live_pull_sessions_limit: int = Field(
+        default=100, alias="SBERJAZZ_LIVE_PULL_SESSIONS_LIMIT"
+    )
     reconciliation_enabled: bool = Field(default=True, alias="RECONCILIATION_ENABLED")
     reconciliation_interval_sec: int = Field(default=60, alias="RECONCILIATION_INTERVAL_SEC")
     reconciliation_limit: int = Field(default=200, alias="RECONCILIATION_LIMIT")
