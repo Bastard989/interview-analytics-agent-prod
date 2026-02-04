@@ -77,9 +77,9 @@ def evaluate_readiness() -> ReadinessState:
             if bool(getattr(s, "allow_service_api_key_in_jwt_mode", True)):
                 issues.append(
                     ReadinessIssue(
-                        severity="error",
+                        severity="warning",
                         code="jwt_service_key_fallback_enabled",
-                        message="В prod для JWT должен быть выключен service API key fallback",
+                        message="ALLOW_SERVICE_API_KEY_IN_JWT_MODE=true будет проигнорирован в prod",
                     )
                 )
             if not (s.oidc_issuer_url or "").strip() and not (s.oidc_jwks_url or "").strip():

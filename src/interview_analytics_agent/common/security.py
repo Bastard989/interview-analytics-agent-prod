@@ -218,9 +218,18 @@ def require_auth(*, authorization: str | None, x_api_key: str | None) -> AuthCon
         sub = str(claims.get("sub") or claims.get("client_id") or "jwt_subject")
         return AuthContext(subject=sub, auth_type="jwt", claims=claims)
 
+    is_prod = _is_prod_env(getattr(settings, "app_env", None))
     allow_key_fallback = bool(getattr(settings, "allow_service_api_key_in_jwt_mode", True))
-    if allow_key_fallback and has_valid_service_key:
+    if allow_key_fallback and (not is_prod) and has_valid_service_key:
         return AuthContext(subject="service", auth_type="service_api_key")
+
+    if is_prod and has_valid_service_key:
+        raise UnauthorizedError(
+            "В APP_ENV=prod требуется Bearer JWT; fallback service API key отключён"
+        )
+
+    if is_prod:
+        raise UnauthorizedError("Требуется Bearer JWT")
 
     raise UnauthorizedError("Требуется Bearer JWT или service API key")
 

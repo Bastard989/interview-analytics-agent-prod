@@ -106,3 +106,34 @@ def test_startup_readiness_no_fail_fast_in_prod() -> None:
             s.auth_mode,
             s.readiness_fail_fast_in_prod,
         ) = snapshot
+
+
+def test_readiness_prod_jwt_fallback_enabled_is_warning() -> None:
+    s = get_settings()
+    snapshot = (
+        s.app_env,
+        s.auth_mode,
+        s.allow_service_api_key_in_jwt_mode,
+        s.oidc_issuer_url,
+        s.oidc_jwks_url,
+    )
+    try:
+        s.app_env = "prod"
+        s.auth_mode = "jwt"
+        s.allow_service_api_key_in_jwt_mode = True
+        s.oidc_issuer_url = "https://issuer.local"
+        s.oidc_jwks_url = None
+        state = evaluate_readiness()
+        issue = next(
+            (i for i in state.issues if i.code == "jwt_service_key_fallback_enabled"), None
+        )
+        assert issue is not None
+        assert issue.severity == "warning"
+    finally:
+        (
+            s.app_env,
+            s.auth_mode,
+            s.allow_service_api_key_in_jwt_mode,
+            s.oidc_issuer_url,
+            s.oidc_jwks_url,
+        ) = snapshot

@@ -123,3 +123,13 @@ def test_auth_jwt_mode_rejects_user_api_key_in_fallback(auth_settings) -> None:
 
     with pytest.raises(UnauthorizedError):
         require_auth(authorization=None, x_api_key="user-1")
+
+
+def test_auth_jwt_mode_disables_service_key_fallback_in_prod(auth_settings) -> None:
+    auth_settings.app_env = "prod"
+    auth_settings.auth_mode = "jwt"
+    auth_settings.allow_service_api_key_in_jwt_mode = True
+    auth_settings.service_api_keys = "svc-1"
+
+    with pytest.raises(UnauthorizedError, match="Bearer JWT"):
+        require_auth(authorization=None, x_api_key="svc-1")
