@@ -56,6 +56,15 @@ services:
       POSTGRES_DSN: ${POSTGRES_DSN:-postgresql+psycopg://interview:interview@postgres:5432/interview}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CHUNKS_DIR: ${CHUNKS_DIR:-/data/chunks}
+      AUTH_MODE: ${AUTH_MODE:-none}
+      API_KEYS: ${API_KEYS:-}
+      SERVICE_API_KEYS: ${SERVICE_API_KEYS:-}
+      ALLOW_SERVICE_API_KEY_IN_JWT_MODE: ${ALLOW_SERVICE_API_KEY_IN_JWT_MODE:-true}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_ALGORITHMS: ${OIDC_ALGORITHMS:-RS256}
+      JWT_SHARED_SECRET: ${JWT_SHARED_SECRET:-}
       LLM_ENABLED: ${LLM_ENABLED:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -246,8 +255,56 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus_alerts.yml:/etc/prometheus/prometheus_alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./ops/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pg_data:
   redis_data:
   app_data:
   hf_cache:
+  prometheus_data:
+  grafana_data:

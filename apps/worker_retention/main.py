@@ -13,6 +13,7 @@ import time
 from contextlib import suppress
 
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
+from interview_analytics_agent.common.metrics import QUEUE_TASKS_TOTAL, track_stage_latency
 from interview_analytics_agent.queue.dispatcher import Q_RETENTION
 from interview_analytics_agent.queue.retry import requeue_with_backoff
 from interview_analytics_agent.queue.streams import ack_task, consumer_name, read_task
@@ -36,23 +37,27 @@ def run_loop() -> None:
 
         should_ack = False
         try:
-            task = msg.payload
+            with track_stage_latency("worker-retention", "retention"):
+                task = msg.payload
 
-            with db_session() as session:
-                apply_retention(session)
+                with db_session() as session:
+                    apply_retention(session)
 
-            log.info(
-                "retention_applied",
-                extra={
-                    "payload": {
-                        "task": {
-                            "entity_type": task.get("entity_type"),
-                            "entity_id": task.get("entity_id"),
+                log.info(
+                    "retention_applied",
+                    extra={
+                        "payload": {
+                            "task": {
+                                "entity_type": task.get("entity_type"),
+                                "entity_id": task.get("entity_id"),
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
             should_ack = True
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-retention", queue=Q_RETENTION, result="success"
+            ).inc()
 
         except Exception as e:
             log.error(
@@ -61,12 +66,18 @@ def run_loop() -> None:
                     "payload": {"err": str(e)[:200], "task": task if "task" in locals() else None}
                 },
             )
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-retention", queue=Q_RETENTION, result="error"
+            ).inc()
             try:
                 task = task if "task" in locals() else {}
                 requeue_with_backoff(
                     queue_name=Q_RETENTION, task_payload=task, max_attempts=3, backoff_sec=3
                 )
                 should_ack = True
+                QUEUE_TASKS_TOTAL.labels(
+                    service="worker-retention", queue=Q_RETENTION, result="retry"
+                ).inc()
             except Exception:
                 pass
         finally:

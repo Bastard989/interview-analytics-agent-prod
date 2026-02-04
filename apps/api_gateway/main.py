@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api_gateway.routers.meetings import router as meetings_router
+from apps.api_gateway.routers.realtime import router as realtime_router
 from apps.api_gateway.ws import ws_router
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
 from interview_analytics_agent.common.metrics import setup_metrics_endpoint
@@ -49,6 +50,7 @@ def _create_app() -> FastAPI:
         return {"ok": True}
 
     app.include_router(meetings_router, prefix="/v1")
+    app.include_router(realtime_router, prefix="/v1")
     app.include_router(ws_router, prefix="/v1")
 
     return app

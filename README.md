@@ -1,16 +1,39 @@
-# Interview Analytics Agent — Dev Cycle
+# Interview Analytics Agent
 
-Проект подготовлен под цикл "автотесты + автофиксы форматирования/линта + CI".
+Production-oriented backend for interview transcription and analytics.
 
-Локальная работа:
-- make install
-- make precommit
-- make test
-- make compose-up
-- make e2e
+## Quick Start (dev)
 
-CI (GitHub Actions) запускается на push и pull_request.
-Dependabot создаёт PR на обновления зависимостей.
+- `docker compose up -d --build`
+- API health: `http://localhost:8010/health`
+- Metrics: `http://localhost:8010/metrics`
 
-Дальше цель: сделать так, чтобы tools/e2e_local.py перешёл от "baseline" к настоящему e2e:
-start meeting -> WS chunks -> transcript.update -> итоговый report.
+## E2E Smoke
+
+- `python3 tools/e2e_local.py`
+
+Smoke contract:
+1. `POST /v1/meetings/start`
+2. `POST /v1/meetings/{id}/chunks`
+3. `GET /v1/meetings/{id}` -> `enhanced_transcript` + `report`
+
+## Auth Modes
+
+- `AUTH_MODE=none` — local/dev only
+- `AUTH_MODE=api_key` — static API keys
+- `AUTH_MODE=jwt` — JWT/OIDC + optional service API key fallback
+
+## Observability Stack (optional profile)
+
+Run with:
+
+- `docker compose --profile observability up -d`
+
+Services:
+- Prometheus: `http://localhost:9090`
+- Alertmanager: `http://localhost:9093`
+- Grafana: `http://localhost:3000`
+
+## CI
+
+GitHub Actions runs build, healthcheck, tests, lint, and contract checks on push/PR.

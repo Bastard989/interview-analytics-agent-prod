@@ -19,6 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
+from interview_analytics_agent.common.metrics import QUEUE_TASKS_TOTAL, track_stage_latency
 from interview_analytics_agent.delivery.email.sender import SMTPEmailProvider
 from interview_analytics_agent.domain.enums import PipelineStatus
 from interview_analytics_agent.queue.dispatcher import Q_DELIVERY, enqueue_retention
@@ -54,63 +55,69 @@ def run_loop() -> None:
 
         should_ack = False
         try:
-            task = msg.payload
-            meeting_id = task["meeting_id"]
+            with track_stage_latency("worker-delivery", "delivery"):
+                task = msg.payload
+                meeting_id = task["meeting_id"]
 
-            with db_session() as session:
-                mrepo = MeetingRepository(session)
-                m = mrepo.get(meeting_id)
+                with db_session() as session:
+                    mrepo = MeetingRepository(session)
+                    m = mrepo.get(meeting_id)
 
-                report = (m.report if m else None) or {
-                    "summary": "",
-                    "bullets": [],
-                    "risk_flags": [],
-                    "recommendation": "",
-                }
-                recipients = []
-                if m and isinstance(m.context, dict):
-                    # Если ты захочешь — потом положим recipients в context при /meetings/start
-                    recipients = m.context.get("recipients", []) or []
+                    report = (m.report if m else None) or {
+                        "summary": "",
+                        "bullets": [],
+                        "risk_flags": [],
+                        "recommendation": "",
+                    }
+                    recipients = []
+                    if m and isinstance(m.context, dict):
+                        # Если ты захочешь — потом положим recipients в context при /meetings/start
+                        recipients = m.context.get("recipients", []) or []
 
-                html = env.get_template("report.html.j2").render(
-                    meeting_id=meeting_id, report=report
-                )
-                txt = env.get_template("report.txt.j2").render(meeting_id=meeting_id, report=report)
-
-                if settings.delivery_provider == "email" and recipients:
-                    smtp.send_report(
-                        meeting_id=meeting_id,
-                        recipients=recipients,
-                        subject=f"Отчёт по встрече {meeting_id}",
-                        html_body=html,
-                        text_body=txt,
-                        attachments=None,
+                    html = env.get_template("report.html.j2").render(
+                        meeting_id=meeting_id, report=report
                     )
-                    log.info(
-                        "delivery_done",
-                        extra={"meeting_id": meeting_id, "payload": {"recipients": recipients}},
+                    txt = env.get_template("report.txt.j2").render(
+                        meeting_id=meeting_id, report=report
                     )
-                else:
-                    # В MVP, если нет получателей — считаем доставку пропущенной
-                    log.warning(
-                        "delivery_skipped",
-                        extra={
-                            "meeting_id": meeting_id,
-                            "payload": {
-                                "provider": settings.delivery_provider,
-                                "recipients": recipients,
+
+                    if settings.delivery_provider == "email" and recipients:
+                        smtp.send_report(
+                            meeting_id=meeting_id,
+                            recipients=recipients,
+                            subject=f"Отчёт по встрече {meeting_id}",
+                            html_body=html,
+                            text_body=txt,
+                            attachments=None,
+                        )
+                        log.info(
+                            "delivery_done",
+                            extra={"meeting_id": meeting_id, "payload": {"recipients": recipients}},
+                        )
+                    else:
+                        # В MVP, если нет получателей — считаем доставку пропущенной
+                        log.warning(
+                            "delivery_skipped",
+                            extra={
+                                "meeting_id": meeting_id,
+                                "payload": {
+                                    "provider": settings.delivery_provider,
+                                    "recipients": recipients,
+                                },
                             },
-                        },
-                    )
+                        )
 
-                if m:
-                    m.status = PipelineStatus.done
-                    mrepo.save(m)
+                    if m:
+                        m.status = PipelineStatus.done
+                        mrepo.save(m)
 
-            enqueue_retention(
-                entity_type="meeting", entity_id=meeting_id, reason="delivered_or_skipped"
-            )
+                enqueue_retention(
+                    entity_type="meeting", entity_id=meeting_id, reason="delivered_or_skipped"
+                )
             should_ack = True
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-delivery", queue=Q_DELIVERY, result="success"
+            ).inc()
 
         except Exception as e:
             log.error(
@@ -119,12 +126,18 @@ def run_loop() -> None:
                     "payload": {"err": str(e)[:200], "task": task if "task" in locals() else None}
                 },
             )
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-delivery", queue=Q_DELIVERY, result="error"
+            ).inc()
             try:
                 task = task if "task" in locals() else {}
                 requeue_with_backoff(
                     queue_name=Q_DELIVERY, task_payload=task, max_attempts=3, backoff_sec=2
                 )
                 should_ack = True
+                QUEUE_TASKS_TOTAL.labels(
+                    service="worker-delivery", queue=Q_DELIVERY, result="retry"
+                ).inc()
             except Exception:
                 pass
         finally:

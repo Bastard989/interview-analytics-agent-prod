@@ -21,6 +21,7 @@ from contextlib import suppress
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
+from interview_analytics_agent.common.metrics import QUEUE_TASKS_TOTAL, track_stage_latency
 from interview_analytics_agent.domain.enums import PipelineStatus
 from interview_analytics_agent.queue.dispatcher import Q_STT, enqueue_enhancer
 from interview_analytics_agent.queue.redis import redis_client
@@ -87,54 +88,56 @@ def run_loop() -> None:
 
         should_ack = False
         try:
-            task = msg.payload
-            meeting_id = task["meeting_id"]
-            chunk_seq = int(task.get("chunk_seq", 0))
-            blob_key = task.get("blob_key") or None
+            with track_stage_latency("worker-stt", "stt"):
+                task = msg.payload
+                meeting_id = task["meeting_id"]
+                chunk_seq = int(task.get("chunk_seq", 0))
+                blob_key = task.get("blob_key") or None
 
-            audio = get_bytes(blob_key)
+                audio = get_bytes(blob_key)
 
-            # sample_rate из задачи может отсутствовать, для whisper мы всё равно ресемплим в 16k
-            res = stt.transcribe_chunk(audio=audio, sample_rate=16000)
+                # sample_rate из задачи может отсутствовать, для whisper мы всё равно ресемплим в 16k
+                res = stt.transcribe_chunk(audio=audio, sample_rate=16000)
 
-            with db_session() as session:
-                mrepo = MeetingRepository(session)
-                srepo = TranscriptSegmentRepository(session)
+                with db_session() as session:
+                    mrepo = MeetingRepository(session)
+                    srepo = TranscriptSegmentRepository(session)
 
-                # гарантируем Meeting (иначе FK упадёт) + ставим статус processing
-                m = mrepo.ensure(
-                    meeting_id=meeting_id, meeting_context={"source": "auto_worker_stt"}
+                    # гарантируем Meeting (иначе FK упадёт) + ставим статус processing
+                    m = mrepo.ensure(
+                        meeting_id=meeting_id, meeting_context={"source": "auto_worker_stt"}
+                    )
+                    m.status = PipelineStatus.processing
+                    mrepo.save(m)
+                    seg = TranscriptSegment(
+                        meeting_id=meeting_id,
+                        seq=chunk_seq,
+                        speaker=res.speaker,
+                        start_ms=None,
+                        end_ms=None,
+                        raw_text=res.text or "",
+                        enhanced_text=res.text or "",
+                        confidence=res.confidence,
+                    )
+                    srepo.upsert_by_meeting_seq(seg)
+
+                _publish_update(
+                    meeting_id,
+                    {
+                        "schema_version": "v1",
+                        "event_type": "transcript.update",
+                        "meeting_id": meeting_id,
+                        "seq": chunk_seq,
+                        "speaker": res.speaker,
+                        "raw_text": res.text or "",
+                        "enhanced_text": res.text or "",
+                        "confidence": res.confidence,
+                    },
                 )
-                m.status = PipelineStatus.processing
-                mrepo.save(m)
-                seg = TranscriptSegment(
-                    meeting_id=meeting_id,
-                    seq=chunk_seq,
-                    speaker=res.speaker,
-                    start_ms=None,
-                    end_ms=None,
-                    raw_text=res.text or "",
-                    enhanced_text=res.text or "",
-                    confidence=res.confidence,
-                )
-                srepo.upsert_by_meeting_seq(seg)
 
-            _publish_update(
-                meeting_id,
-                {
-                    "schema_version": "v1",
-                    "event_type": "transcript.update",
-                    "meeting_id": meeting_id,
-                    "seq": chunk_seq,
-                    "speaker": res.speaker,
-                    "raw_text": res.text or "",
-                    "enhanced_text": res.text or "",
-                    "confidence": res.confidence,
-                },
-            )
-
-            enqueue_enhancer(meeting_id=meeting_id)
+                enqueue_enhancer(meeting_id=meeting_id)
             should_ack = True
+            QUEUE_TASKS_TOTAL.labels(service="worker-stt", queue=Q_STT, result="success").inc()
 
         except Exception as e:
             log.error(
@@ -143,12 +146,14 @@ def run_loop() -> None:
                     "payload": {"err": str(e)[:250], "task": task if "task" in locals() else None}
                 },
             )
+            QUEUE_TASKS_TOTAL.labels(service="worker-stt", queue=Q_STT, result="error").inc()
             try:
                 task = task if "task" in locals() else {}
                 requeue_with_backoff(
                     queue_name=Q_STT, task_payload=task, max_attempts=3, backoff_sec=1
                 )
                 should_ack = True
+                QUEUE_TASKS_TOTAL.labels(service="worker-stt", queue=Q_STT, result="retry").inc()
             except Exception:
                 pass
         finally:

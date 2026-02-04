@@ -16,6 +16,7 @@ import time
 from contextlib import suppress
 
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
+from interview_analytics_agent.common.metrics import QUEUE_TASKS_TOTAL, track_stage_latency
 from interview_analytics_agent.domain.enums import PipelineStatus
 from interview_analytics_agent.processing.aggregation import build_enhanced_transcript
 from interview_analytics_agent.processing.analytics import build_report
@@ -43,29 +44,33 @@ def run_loop() -> None:
 
         should_ack = False
         try:
-            task = msg.payload
-            meeting_id = task["meeting_id"]
+            with track_stage_latency("worker-analytics", "analytics"):
+                task = msg.payload
+                meeting_id = task["meeting_id"]
 
-            with db_session() as session:
-                mrepo = MeetingRepository(session)
-                srepo = TranscriptSegmentRepository(session)
+                with db_session() as session:
+                    mrepo = MeetingRepository(session)
+                    srepo = TranscriptSegmentRepository(session)
 
-                m = mrepo.get(meeting_id)
-                ctx = (m.context if m else {}) or {}
+                    m = mrepo.get(meeting_id)
+                    ctx = (m.context if m else {}) or {}
 
-                segs = srepo.list_by_meeting(meeting_id)
-                enhanced = build_enhanced_transcript(segs)
+                    segs = srepo.list_by_meeting(meeting_id)
+                    enhanced = build_enhanced_transcript(segs)
 
-                report = build_report(enhanced_transcript=enhanced, meeting_context=ctx)
+                    report = build_report(enhanced_transcript=enhanced, meeting_context=ctx)
 
-                if m:
-                    m.enhanced_transcript = enhanced
-                    m.report = report
-                    m.status = PipelineStatus.processing
-                    mrepo.save(m)
+                    if m:
+                        m.enhanced_transcript = enhanced
+                        m.report = report
+                        m.status = PipelineStatus.processing
+                        mrepo.save(m)
 
-            enqueue_delivery(meeting_id=meeting_id)
+                enqueue_delivery(meeting_id=meeting_id)
             should_ack = True
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-analytics", queue=Q_ANALYTICS, result="success"
+            ).inc()
 
         except Exception as e:
             log.error(
@@ -74,12 +79,18 @@ def run_loop() -> None:
                     "payload": {"err": str(e)[:200], "task": task if "task" in locals() else None}
                 },
             )
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-analytics", queue=Q_ANALYTICS, result="error"
+            ).inc()
             try:
                 task = task if "task" in locals() else {}
                 requeue_with_backoff(
                     queue_name=Q_ANALYTICS, task_payload=task, max_attempts=3, backoff_sec=2
                 )
                 should_ack = True
+                QUEUE_TASKS_TOTAL.labels(
+                    service="worker-analytics", queue=Q_ANALYTICS, result="retry"
+                ).inc()
             except Exception:
                 pass
         finally:

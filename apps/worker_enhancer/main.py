@@ -16,6 +16,7 @@ import time
 from contextlib import suppress
 
 from interview_analytics_agent.common.logging import get_project_logger, setup_logging
+from interview_analytics_agent.common.metrics import QUEUE_TASKS_TOTAL, track_stage_latency
 from interview_analytics_agent.processing.enhancer import enhance_text
 from interview_analytics_agent.processing.quality import quality_score
 from interview_analytics_agent.queue.dispatcher import Q_ENHANCER, enqueue_analytics
@@ -44,36 +45,40 @@ def run_loop() -> None:
 
         should_ack = False
         try:
-            task = msg.payload
-            meeting_id = task["meeting_id"]
+            with track_stage_latency("worker-enhancer", "enhancer"):
+                task = msg.payload
+                meeting_id = task["meeting_id"]
 
-            with db_session() as session:
-                srepo = TranscriptSegmentRepository(session)
-                segs = srepo.list_by_meeting(meeting_id)
+                with db_session() as session:
+                    srepo = TranscriptSegmentRepository(session)
+                    segs = srepo.list_by_meeting(meeting_id)
 
-                for seg in segs:
-                    enh, meta = enhance_text(seg.raw_text or "")
-                    if enh != (seg.enhanced_text or ""):
-                        seg.enhanced_text = enh
-                        q = quality_score(seg.raw_text or "", enh)
-                        _publish_update(
-                            meeting_id,
-                            {
-                                "schema_version": "v1",
-                                "event_type": "transcript.update",
-                                "meeting_id": meeting_id,
-                                "seq": seg.seq,
-                                "speaker": seg.speaker,
-                                "raw_text": seg.raw_text or "",
-                                "enhanced_text": seg.enhanced_text or "",
-                                "confidence": seg.confidence,
-                                "quality": q,
-                                "meta": meta,
-                            },
-                        )
+                    for seg in segs:
+                        enh, meta = enhance_text(seg.raw_text or "")
+                        if enh != (seg.enhanced_text or ""):
+                            seg.enhanced_text = enh
+                            q = quality_score(seg.raw_text or "", enh)
+                            _publish_update(
+                                meeting_id,
+                                {
+                                    "schema_version": "v1",
+                                    "event_type": "transcript.update",
+                                    "meeting_id": meeting_id,
+                                    "seq": seg.seq,
+                                    "speaker": seg.speaker,
+                                    "raw_text": seg.raw_text or "",
+                                    "enhanced_text": seg.enhanced_text or "",
+                                    "confidence": seg.confidence,
+                                    "quality": q,
+                                    "meta": meta,
+                                },
+                            )
 
-            enqueue_analytics(meeting_id=meeting_id)
+                enqueue_analytics(meeting_id=meeting_id)
             should_ack = True
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-enhancer", queue=Q_ENHANCER, result="success"
+            ).inc()
 
         except Exception as e:
             log.error(
@@ -82,12 +87,18 @@ def run_loop() -> None:
                     "payload": {"err": str(e)[:200], "task": task if "task" in locals() else None}
                 },
             )
+            QUEUE_TASKS_TOTAL.labels(
+                service="worker-enhancer", queue=Q_ENHANCER, result="error"
+            ).inc()
             try:
                 task = task if "task" in locals() else {}
                 requeue_with_backoff(
                     queue_name=Q_ENHANCER, task_payload=task, max_attempts=3, backoff_sec=1
                 )
                 should_ack = True
+                QUEUE_TASKS_TOTAL.labels(
+                    service="worker-enhancer", queue=Q_ENHANCER, result="retry"
+                ).inc()
             except Exception:
                 pass
         finally:

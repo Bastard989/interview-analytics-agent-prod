@@ -1,0 +1,42 @@
+groups:
+  - name: agent-availability
+    rules:
+      - alert: ApiGatewayDown
+        expr: up{job="api-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API Gateway is down"
+          description: "Prometheus cannot scrape api-gateway for more than 2 minutes."
+
+  - name: agent-queues
+    rules:
+      - alert: QueueBacklogHigh
+        expr: agent_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue backlog is high"
+          description: "Queue {{ $labels.queue }} depth is {{ $value }} for more than 5 minutes."
+
+      - alert: DLQNotEmpty
+        expr: agent_dlq_depth > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ contains messages"
+          description: "DLQ for {{ $labels.queue }} has pending messages."
+
+  - name: agent-latency
+    rules:
+      - alert: ApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(agent_http_request_latency_ms_bucket[5m])) by (le)) > 3000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (p95)"
+          description: "p95 latency is above 3000ms for 10 minutes."
