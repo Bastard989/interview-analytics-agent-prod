@@ -32,6 +32,7 @@ class MeetingStartRequest(BaseModel):
 
     # Участники/роли/контекст обработки
     context: dict[str, Any] = Field(default_factory=dict)
+    auto_join_connector: bool | None = None
 
     # Куда доставлять результаты
     recipients: list[str] = Field(default_factory=list)
@@ -44,6 +45,9 @@ class MeetingStartResponse(BaseModel):
     api_version: str = Field(default=HTTP_API_VERSION)
     meeting_id: str
     status: str
+    connector_auto_join: bool = False
+    connector_provider: str | None = None
+    connector_connected: bool | None = None
 
 
 class MeetingGetResponse(BaseModel):

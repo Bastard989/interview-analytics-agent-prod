@@ -1441,6 +1441,17 @@
             "type": "object",
             "title": "Context"
           },
+          "auto_join_connector": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Join Connector"
+          },
           "recipients": {
             "items": {
               "type": "string"
@@ -1466,6 +1477,33 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "connector_auto_join": {
+            "type": "boolean",
+            "title": "Connector Auto Join",
+            "default": false
+          },
+          "connector_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Provider"
+          },
+          "connector_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Connected"
           }
         },
         "type": "object",

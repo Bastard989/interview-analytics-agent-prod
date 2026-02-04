@@ -24,6 +24,11 @@ Production-ориентированный backend для транскрибац�
 2. `POST /v1/meetings/{id}/chunks`
 3. `GET /v1/meetings/{id}` -> `enhanced_transcript` + `report`
 
+`POST /v1/meetings/start`:
+- поддерживает `auto_join_connector=true|false` (явное управление auto-join).
+- если поле не передано, для `mode=realtime` используется `MEETING_AUTO_JOIN_ON_START`.
+- при успешном auto-join в ответе возвращаются `connector_auto_join`, `connector_provider`, `connector_connected`.
+
 Контуры WebSocket:
 - `/v1/ws` — пользовательский контур (user JWT / `API_KEYS`).
 - `/v1/ws/internal` — сервисный контур (service API key / service JWT claims).

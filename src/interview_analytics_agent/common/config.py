@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     meeting_connector_provider: str = Field(
         default="sberjazz_mock", alias="MEETING_CONNECTOR_PROVIDER"
     )  # sberjazz|sberjazz_mock|none
+    meeting_auto_join_on_start: bool = Field(default=False, alias="MEETING_AUTO_JOIN_ON_START")
     sberjazz_api_base: str | None = Field(default=None, alias="SBERJAZZ_API_BASE")
     sberjazz_api_token: str | None = Field(default=None, alias="SBERJAZZ_API_TOKEN")
     sberjazz_timeout_sec: int = Field(default=10, alias="SBERJAZZ_TIMEOUT_SEC")
