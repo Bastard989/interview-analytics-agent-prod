@@ -53,6 +53,18 @@ class Settings(BaseSettings):
     jwt_service_allowed_roles: str = Field(
         default="service,admin", alias="JWT_SERVICE_ALLOWED_ROLES"
     )
+    jwt_service_permission_claim: str = Field(
+        default="scope", alias="JWT_SERVICE_PERMISSION_CLAIM"
+    )
+    jwt_service_required_scopes_admin_read: str = Field(
+        default="agent.admin.read,agent.admin", alias="JWT_SERVICE_REQUIRED_SCOPES_ADMIN_READ"
+    )
+    jwt_service_required_scopes_admin_write: str = Field(
+        default="agent.admin.write,agent.admin", alias="JWT_SERVICE_REQUIRED_SCOPES_ADMIN_WRITE"
+    )
+    jwt_service_required_scopes_ws_internal: str = Field(
+        default="agent.ws.internal,agent.admin", alias="JWT_SERVICE_REQUIRED_SCOPES_WS_INTERNAL"
+    )
 
     # -------------------------------------------------------------------------
     # Storage

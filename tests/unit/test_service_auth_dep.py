@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from apps.api_gateway.deps import service_auth_dep
+from apps.api_gateway.deps import service_auth_dep, service_auth_read_dep, service_auth_write_dep
 from interview_analytics_agent.common.config import get_settings
 
 jwt = pytest.importorskip("jwt")
@@ -32,6 +32,9 @@ def auth_settings():
         "jwt_service_claim_values",
         "jwt_service_role_claim",
         "jwt_service_allowed_roles",
+        "jwt_service_permission_claim",
+        "jwt_service_required_scopes_admin_read",
+        "jwt_service_required_scopes_admin_write",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:
@@ -163,3 +166,52 @@ def test_service_dep_rejects_user_key_in_api_key_mode(auth_settings) -> None:
     with pytest.raises(HTTPException) as e:
         service_auth_dep(request=_make_request(), authorization=None, x_api_key="user-1")
     assert e.value.status_code == 403
+
+
+def test_service_read_dep_requires_scope_for_service_jwt(auth_settings) -> None:
+    auth_settings.auth_mode = "jwt"
+    auth_settings.jwt_shared_secret = "test-secret"
+    auth_settings.oidc_algorithms = "HS256"
+    auth_settings.oidc_issuer_url = "https://issuer.local"
+    auth_settings.oidc_audience = "interview-agent"
+    auth_settings.jwt_service_claim_key = "token_type"
+    auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read"
+
+    token = _build_hs256_token(
+        secret="test-secret",
+        sub="svc-account-3",
+        extra_claims={"token_type": "service", "scope": "agent.ws.internal"},
+    )
+    with pytest.raises(HTTPException) as e:
+        service_auth_read_dep(
+            request=_make_request(),
+            authorization=f"Bearer {token}",
+            x_api_key=None,
+        )
+    assert e.value.status_code == 403
+
+
+def test_service_write_dep_allows_scope_for_service_jwt(auth_settings) -> None:
+    auth_settings.auth_mode = "jwt"
+    auth_settings.jwt_shared_secret = "test-secret"
+    auth_settings.oidc_algorithms = "HS256"
+    auth_settings.oidc_issuer_url = "https://issuer.local"
+    auth_settings.oidc_audience = "interview-agent"
+    auth_settings.jwt_service_claim_key = "token_type"
+    auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_admin_write = "agent.admin.write"
+
+    token = _build_hs256_token(
+        secret="test-secret",
+        sub="svc-account-4",
+        extra_claims={"token_type": "service", "scope": "agent.admin.write"},
+    )
+    ctx = service_auth_write_dep(
+        request=_make_request(path="/v1/admin/connectors/sberjazz/m-1/join"),
+        authorization=f"Bearer {token}",
+        x_api_key=None,
+    )
+    assert ctx.auth_type == "jwt"

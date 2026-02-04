@@ -30,6 +30,10 @@ def auth_settings():
         "jwt_service_claim_values",
         "jwt_service_role_claim",
         "jwt_service_allowed_roles",
+        "jwt_service_permission_claim",
+        "jwt_service_required_scopes_admin_read",
+        "jwt_service_required_scopes_admin_write",
+        "jwt_service_required_scopes_ws_internal",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:

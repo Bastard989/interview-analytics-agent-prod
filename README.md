@@ -20,6 +20,7 @@ Production-ориентированный backend для транскрибац�
 Контуры WebSocket:
 - `/v1/ws` — пользовательский контур (user JWT / `API_KEYS`).
 - `/v1/ws/internal` — сервисный контур (service API key / service JWT claims).
+  Для service JWT дополнительно требуется scope из `JWT_SERVICE_REQUIRED_SCOPES_WS_INTERNAL`.
 
 ## Режимы авторизации
 
@@ -40,6 +41,9 @@ Production-ориентированный backend для транскрибац�
 - `GET /v1/admin/security/audit` — получить персистентный audit trail (allow/deny).
 - Требуется service-авторизация (`SERVICE_API_KEYS`) или service JWT claims:
   (`JWT_SERVICE_CLAIM_KEY` / `JWT_SERVICE_CLAIM_VALUES`, `JWT_SERVICE_ROLE_CLAIM` / `JWT_SERVICE_ALLOWED_ROLES`).
+- Для service JWT включена scope-политика:
+  - read endpoint'ы: `JWT_SERVICE_REQUIRED_SCOPES_ADMIN_READ`
+  - write endpoint'ы: `JWT_SERVICE_REQUIRED_SCOPES_ADMIN_WRITE`
 
 Security audit логи:
 - `security_audit_allow` и `security_audit_deny` (endpoint, method, subject, auth_type, reason).

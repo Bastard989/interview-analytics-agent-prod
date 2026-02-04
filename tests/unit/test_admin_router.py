@@ -40,6 +40,9 @@ def auth_settings():
         "jwt_service_claim_values",
         "jwt_service_role_claim",
         "jwt_service_allowed_roles",
+        "jwt_service_permission_claim",
+        "jwt_service_required_scopes_admin_read",
+        "jwt_service_required_scopes_admin_write",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:
@@ -90,17 +93,42 @@ def test_admin_queue_health_allows_service_jwt(monkeypatch, auth_settings) -> No
     auth_settings.oidc_audience = "interview-agent"
     auth_settings.jwt_service_claim_key = "token_type"
     auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read"
 
     monkeypatch.setattr("apps.api_gateway.routers.admin.redis_client", lambda: _FakeRedis())
     client = TestClient(app)
     token = _build_hs256_token(
         secret="test-secret",
         sub="svc-account-1",
-        extra_claims={"token_type": "service"},
+        extra_claims={"token_type": "service", "scope": "agent.admin.read"},
     )
 
     ok = client.get("/v1/admin/queues/health", headers={"Authorization": f"Bearer {token}"})
     assert ok.status_code == 200
+
+
+def test_admin_queue_health_denies_service_jwt_without_scope(monkeypatch, auth_settings) -> None:
+    auth_settings.auth_mode = "jwt"
+    auth_settings.jwt_shared_secret = "test-secret"
+    auth_settings.oidc_algorithms = "HS256"
+    auth_settings.oidc_issuer_url = "https://issuer.local"
+    auth_settings.oidc_audience = "interview-agent"
+    auth_settings.jwt_service_claim_key = "token_type"
+    auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read"
+
+    monkeypatch.setattr("apps.api_gateway.routers.admin.redis_client", lambda: _FakeRedis())
+    client = TestClient(app)
+    token = _build_hs256_token(
+        secret="test-secret",
+        sub="svc-account-1",
+        extra_claims={"token_type": "service", "scope": "agent.connector.read"},
+    )
+
+    denied = client.get("/v1/admin/queues/health", headers={"Authorization": f"Bearer {token}"})
+    assert denied.status_code == 403
 
 
 def test_admin_sberjazz_endpoints_require_service_identity(monkeypatch, auth_settings) -> None:

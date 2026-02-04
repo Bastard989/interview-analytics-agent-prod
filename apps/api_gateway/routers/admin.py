@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from apps.api_gateway.deps import service_auth_dep
+from apps.api_gateway.deps import service_auth_read_dep, service_auth_write_dep
 from interview_analytics_agent.common.errors import ErrCode, ProviderError
 from interview_analytics_agent.common.metrics import record_sberjazz_reconcile_result
 from interview_analytics_agent.queue.redis import redis_client
@@ -143,7 +143,7 @@ def _xpending_count(r, stream: str, group: str) -> int:
 @router.get(
     "/admin/queues/health",
     response_model=QueueHealthResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_read_dep)],
 )
 def admin_queues_health() -> QueueHealthResponse:
     try:
@@ -174,7 +174,7 @@ def admin_queues_health() -> QueueHealthResponse:
 @router.post(
     "/admin/connectors/sberjazz/{meeting_id}/join",
     response_model=SberJazzSessionResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_write_dep)],
 )
 def admin_sberjazz_join(meeting_id: str) -> SberJazzSessionResponse:
     try:
@@ -190,7 +190,7 @@ def admin_sberjazz_join(meeting_id: str) -> SberJazzSessionResponse:
 @router.post(
     "/admin/connectors/sberjazz/{meeting_id}/leave",
     response_model=SberJazzSessionResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_write_dep)],
 )
 def admin_sberjazz_leave(meeting_id: str) -> SberJazzSessionResponse:
     try:
@@ -206,7 +206,7 @@ def admin_sberjazz_leave(meeting_id: str) -> SberJazzSessionResponse:
 @router.get(
     "/admin/connectors/sberjazz/{meeting_id}/status",
     response_model=SberJazzSessionResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_read_dep)],
 )
 def admin_sberjazz_status(meeting_id: str) -> SberJazzSessionResponse:
     return _as_response(get_sberjazz_meeting_state(meeting_id))
@@ -215,7 +215,7 @@ def admin_sberjazz_status(meeting_id: str) -> SberJazzSessionResponse:
 @router.post(
     "/admin/connectors/sberjazz/{meeting_id}/reconnect",
     response_model=SberJazzSessionResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_write_dep)],
 )
 def admin_sberjazz_reconnect(meeting_id: str) -> SberJazzSessionResponse:
     try:
@@ -231,7 +231,7 @@ def admin_sberjazz_reconnect(meeting_id: str) -> SberJazzSessionResponse:
 @router.get(
     "/admin/connectors/sberjazz/health",
     response_model=SberJazzConnectorHealthResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_read_dep)],
 )
 def admin_sberjazz_health() -> SberJazzConnectorHealthResponse:
     return _as_health_response(get_sberjazz_connector_health())
@@ -240,7 +240,7 @@ def admin_sberjazz_health() -> SberJazzConnectorHealthResponse:
 @router.get(
     "/admin/connectors/sberjazz/sessions",
     response_model=SberJazzSessionListResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_read_dep)],
 )
 def admin_sberjazz_sessions(limit: int = 100) -> SberJazzSessionListResponse:
     sessions = [_as_response(s) for s in list_sberjazz_sessions(limit=max(1, min(limit, 500)))]
@@ -250,7 +250,7 @@ def admin_sberjazz_sessions(limit: int = 100) -> SberJazzSessionListResponse:
 @router.post(
     "/admin/connectors/sberjazz/reconcile",
     response_model=SberJazzReconcileResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_write_dep)],
 )
 def admin_sberjazz_reconcile(limit: int = 200) -> SberJazzReconcileResponse:
     result = reconcile_sberjazz_sessions(limit=max(1, min(limit, 500)))
@@ -266,7 +266,7 @@ def admin_sberjazz_reconcile(limit: int = 200) -> SberJazzReconcileResponse:
 @router.get(
     "/admin/security/audit",
     response_model=SecurityAuditListResponse,
-    dependencies=[Depends(service_auth_dep)],
+    dependencies=[Depends(service_auth_read_dep)],
 )
 def admin_security_audit(
     limit: int = 100,

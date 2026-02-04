@@ -19,11 +19,13 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
+from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, UnauthorizedError
 from interview_analytics_agent.common.ids import new_idempotency_key
 from interview_analytics_agent.common.logging import get_project_logger
 from interview_analytics_agent.common.security import (
     AuthContext,
+    has_any_service_permission,
     is_service_jwt_claims,
     require_auth,
 )
@@ -46,6 +48,10 @@ def _is_service_ctx(ctx: AuthContext) -> bool:
 
 def _ws_client_ip(ws: WebSocket) -> str | None:
     return ws.client.host if ws.client else None
+
+
+def _parse_scopes(raw: str) -> set[str]:
+    return {s.strip() for s in (raw or "").split(",") if s.strip()}
 
 
 def _audit_ws_allow(*, ws: WebSocket, ctx: AuthContext, reason: str) -> None:
@@ -153,6 +159,23 @@ async def _authorize_ws(ws: WebSocket, *, service_only: bool) -> AuthContext | N
                 reason="forbidden: service identity required",
             )
             return None
+        if ctx.auth_type == "jwt":
+            required_scopes = _parse_scopes(get_settings().jwt_service_required_scopes_ws_internal)
+            if required_scopes and not has_any_service_permission(
+                ctx.claims, required_permissions=required_scopes
+            ):
+                _audit_ws_deny(
+                    ws=ws,
+                    reason="missing_service_scope",
+                    error_code=ErrCode.FORBIDDEN,
+                    auth_type=ctx.auth_type,
+                    subject=ctx.subject,
+                )
+                await ws.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="forbidden: missing service scope",
+                )
+                return None
         _audit_ws_allow(ws=ws, ctx=ctx, reason="ws_service_auth_ok")
         return ctx
 

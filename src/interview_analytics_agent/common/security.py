@@ -99,6 +99,23 @@ def is_service_jwt_claims(claims: dict[str, Any] | None) -> bool:
     return False
 
 
+def has_any_service_permission(
+    claims: dict[str, Any] | None,
+    *,
+    required_permissions: set[str],
+) -> bool:
+    if not required_permissions:
+        return True
+    if not claims:
+        return False
+    s = get_settings()
+    claim_key = (s.jwt_service_permission_claim or "").strip()
+    if not claim_key:
+        return False
+    actual = _claim_values(claims.get(claim_key))
+    return bool(actual & required_permissions)
+
+
 @lru_cache(maxsize=8)
 def _get_jwks_client(jwks_url: str):
     if jwt is None:

@@ -30,6 +30,8 @@ def auth_settings():
         "jwt_service_claim_values",
         "jwt_service_role_claim",
         "jwt_service_allowed_roles",
+        "jwt_service_permission_claim",
+        "jwt_service_required_scopes_ws_internal",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:
@@ -107,15 +109,41 @@ def test_ws_internal_allows_service_jwt(auth_settings) -> None:
     auth_settings.oidc_audience = "interview-agent"
     auth_settings.jwt_service_claim_key = "token_type"
     auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_ws_internal = "agent.ws.internal"
 
     token = _build_hs256_token(
         secret="test-secret",
         sub="svc-account-1",
-        extra_claims={"token_type": "service"},
+        extra_claims={"token_type": "service", "scope": "agent.ws.internal"},
     )
     client = TestClient(app)
     with client.websocket_connect("/v1/ws/internal", headers={"Authorization": f"Bearer {token}"}):
         pass
+
+
+def test_ws_internal_denies_service_jwt_without_scope(auth_settings) -> None:
+    auth_settings.auth_mode = "jwt"
+    auth_settings.jwt_shared_secret = "test-secret"
+    auth_settings.oidc_algorithms = "HS256"
+    auth_settings.oidc_issuer_url = "https://issuer.local"
+    auth_settings.oidc_audience = "interview-agent"
+    auth_settings.jwt_service_claim_key = "token_type"
+    auth_settings.jwt_service_claim_values = "service,m2m"
+    auth_settings.jwt_service_permission_claim = "scope"
+    auth_settings.jwt_service_required_scopes_ws_internal = "agent.ws.internal"
+
+    token = _build_hs256_token(
+        secret="test-secret",
+        sub="svc-account-1",
+        extra_claims={"token_type": "service", "scope": "agent.admin.read"},
+    )
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect) as e, client.websocket_connect(
+        "/v1/ws/internal", headers={"Authorization": f"Bearer {token}"}
+    ):
+        pass
+    assert e.value.code == 1008
 
 
 def test_ws_user_denies_service_jwt(auth_settings) -> None:

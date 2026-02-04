@@ -36,6 +36,9 @@ def auth_settings():
         "service_api_keys",
         "security_audit_db_enabled",
         "allow_service_api_key_in_jwt_mode",
+        "jwt_service_permission_claim",
+        "jwt_service_required_scopes_admin_read",
+        "jwt_service_required_scopes_admin_write",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:

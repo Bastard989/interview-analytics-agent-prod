@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, Request, status
 
+from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, UnauthorizedError
 from interview_analytics_agent.common.logging import get_project_logger
 from interview_analytics_agent.common.security import (
     AuthContext,
+    has_any_service_permission,
     is_service_jwt_claims,
     require_auth,
 )
@@ -140,21 +142,45 @@ def auth_dep(
     return ctx
 
 
-def service_auth_dep(
+def _parse_scopes(raw: str) -> set[str]:
+    return {s.strip() for s in (raw or "").split(",") if s.strip()}
+
+
+def _service_auth_internal(
+    *,
     request: Request,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None,
+    x_api_key: str | None,
+    required_scopes: set[str] | None,
+    allow_reason: str,
 ) -> AuthContext:
+    required_scopes = required_scopes or set()
     ctx = _authenticate_request(
         authorization=authorization,
         x_api_key=x_api_key,
         request=request,
     )
     if ctx.auth_type == "service_api_key":
-        _audit_allow(request=request, ctx=ctx, reason="service_api_key")
+        _audit_allow(request=request, ctx=ctx, reason=f"{allow_reason}:service_api_key")
         return ctx
+
     if ctx.auth_type == "jwt" and is_service_jwt_claims(ctx.claims):
-        _audit_allow(request=request, ctx=ctx, reason="service_jwt_claims")
+        if required_scopes and not has_any_service_permission(
+            ctx.claims, required_permissions=required_scopes
+        ):
+            _audit_deny(
+                request=request,
+                status_code=status.HTTP_403_FORBIDDEN,
+                reason="missing_service_scope",
+                error_code=ErrCode.FORBIDDEN,
+                auth_type=ctx.auth_type,
+                subject=ctx.subject,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": ErrCode.FORBIDDEN, "message": "Недостаточно service scope"},
+            )
+        _audit_allow(request=request, ctx=ctx, reason=f"{allow_reason}:service_jwt_claims")
         return ctx
 
     _audit_deny(
@@ -168,4 +194,48 @@ def service_auth_dep(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail={"code": ErrCode.FORBIDDEN, "message": "Требуется service-авторизация"},
+    )
+
+
+def service_auth_dep(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> AuthContext:
+    return _service_auth_internal(
+        request=request,
+        authorization=authorization,
+        x_api_key=x_api_key,
+        required_scopes=None,
+        allow_reason="service_auth",
+    )
+
+
+def service_auth_read_dep(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> AuthContext:
+    scopes = _parse_scopes(get_settings().jwt_service_required_scopes_admin_read)
+    return _service_auth_internal(
+        request=request,
+        authorization=authorization,
+        x_api_key=x_api_key,
+        required_scopes=scopes,
+        allow_reason="service_auth_read",
+    )
+
+
+def service_auth_write_dep(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> AuthContext:
+    scopes = _parse_scopes(get_settings().jwt_service_required_scopes_admin_write)
+    return _service_auth_internal(
+        request=request,
+        authorization=authorization,
+        x_api_key=x_api_key,
+        required_scopes=scopes,
+        allow_reason="service_auth_write",
     )
