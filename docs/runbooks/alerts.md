@@ -41,3 +41,10 @@
 2. Открыть список сессий `GET /v1/admin/connectors/sberjazz/sessions`.
 3. Для проблемных встреч запустить targeted reconnect.
 4. Если повторяется — анализировать ошибки коннектора и auth к SberJazz.
+
+## SberJazzCircuitBreakerOpen
+
+1. Проверить состояние breaker: `GET /v1/admin/connectors/sberjazz/circuit-breaker`.
+2. Проверить первичную причину в логах `api-gateway` (`sberjazz_cb_failure`, ошибки провайдера).
+3. Проверить доступность SberJazz API и валидность токена (`SBERJAZZ_API_TOKEN`).
+4. После устранения причины дождаться auto-cooldown (`SBERJAZZ_CB_OPEN_SEC`) и повторить reconnect.

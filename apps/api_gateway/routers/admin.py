@@ -17,9 +17,11 @@ from interview_analytics_agent.common.metrics import record_sberjazz_reconcile_r
 from interview_analytics_agent.queue.redis import redis_client
 from interview_analytics_agent.queue.streams import stream_dlq_name
 from interview_analytics_agent.services.sberjazz_service import (
+    SberJazzCircuitBreakerState,
     SberJazzConnectorHealth,
     SberJazzReconcileResult,
     SberJazzSessionState,
+    get_sberjazz_circuit_breaker_state,
     get_sberjazz_connector_health,
     get_sberjazz_meeting_state,
     join_sberjazz_meeting,
@@ -83,6 +85,14 @@ class SberJazzReconcileResponse(BaseModel):
     updated_at: str
 
 
+class SberJazzCircuitBreakerResponse(BaseModel):
+    state: str
+    consecutive_failures: int
+    opened_at: str | None
+    last_error: str | None
+    updated_at: str
+
+
 class SecurityAuditEventResponse(BaseModel):
     id: int
     created_at: str
@@ -129,6 +139,16 @@ def _as_reconcile_response(state: SberJazzReconcileResult) -> SberJazzReconcileR
         reconnected=state.reconnected,
         failed=state.failed,
         stale_threshold_sec=state.stale_threshold_sec,
+        updated_at=state.updated_at,
+    )
+
+
+def _as_cb_response(state: SberJazzCircuitBreakerState) -> SberJazzCircuitBreakerResponse:
+    return SberJazzCircuitBreakerResponse(
+        state=state.state,
+        consecutive_failures=state.consecutive_failures,
+        opened_at=state.opened_at,
+        last_error=state.last_error,
         updated_at=state.updated_at,
     )
 
@@ -235,6 +255,15 @@ def admin_sberjazz_reconnect(meeting_id: str) -> SberJazzSessionResponse:
 )
 def admin_sberjazz_health() -> SberJazzConnectorHealthResponse:
     return _as_health_response(get_sberjazz_connector_health())
+
+
+@router.get(
+    "/admin/connectors/sberjazz/circuit-breaker",
+    response_model=SberJazzCircuitBreakerResponse,
+    dependencies=[Depends(service_auth_read_dep)],
+)
+def admin_sberjazz_circuit_breaker() -> SberJazzCircuitBreakerResponse:
+    return _as_cb_response(get_sberjazz_circuit_breaker_state())
 
 
 @router.get(

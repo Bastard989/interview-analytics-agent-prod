@@ -36,6 +36,7 @@ Production-ориентированный backend для транскрибац�
 - `POST /v1/admin/connectors/sberjazz/{meeting_id}/leave` — завершить подключение.
 - `POST /v1/admin/connectors/sberjazz/{meeting_id}/reconnect` — принудительный reconnect.
 - `GET /v1/admin/connectors/sberjazz/health` — health/probe коннектора.
+- `GET /v1/admin/connectors/sberjazz/circuit-breaker` — текущее состояние circuit breaker.
 - `GET /v1/admin/connectors/sberjazz/sessions` — список сохранённых connector-сессий.
 - `POST /v1/admin/connectors/sberjazz/reconcile` — reconcile stale-сессий с авто-reconnect.
 - `GET /v1/admin/security/audit` — получить персистентный audit trail (allow/deny).
@@ -68,6 +69,7 @@ Security audit логи:
 
 Дополнительные connector-метрики:
 - `agent_sberjazz_connector_health`
+- `agent_sberjazz_circuit_breaker_open`
 - `agent_sberjazz_sessions_total{state="connected|disconnected"}`
 
 ## CI

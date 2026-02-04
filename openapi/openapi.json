@@ -672,6 +672,68 @@
         }
       }
     },
+    "/v1/admin/connectors/sberjazz/circuit-breaker": {
+      "get": {
+        "summary": "Admin Sberjazz Circuit Breaker",
+        "operationId": "admin_sberjazz_circuit_breaker_v1_admin_connectors_sberjazz_circuit_breaker_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SberJazzCircuitBreakerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/connectors/sberjazz/sessions": {
       "get": {
         "summary": "Admin Sberjazz Sessions",
@@ -1194,6 +1256,53 @@
           "queues"
         ],
         "title": "QueueHealthResponse"
+      },
+      "SberJazzCircuitBreakerResponse": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "consecutive_failures",
+          "opened_at",
+          "last_error",
+          "updated_at"
+        ],
+        "title": "SberJazzCircuitBreakerResponse"
       },
       "SberJazzConnectorHealthResponse": {
         "properties": {

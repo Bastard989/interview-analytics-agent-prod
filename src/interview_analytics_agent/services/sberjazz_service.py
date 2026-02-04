@@ -38,6 +38,19 @@ class SberJazzSessionState:
 _SESSIONS: dict[str, SberJazzSessionState] = {}
 _SESSION_KEY_PREFIX = "connector:sberjazz:session:"
 _SESSION_INDEX_KEY = "connector:sberjazz:sessions"
+_CIRCUIT_BREAKER_KEY = "connector:sberjazz:circuit_breaker"
+
+
+@dataclass
+class SberJazzCircuitBreakerState:
+    state: str  # closed|open|half_open
+    consecutive_failures: int
+    opened_at: str | None
+    last_error: str | None
+    updated_at: str
+
+
+_CIRCUIT_BREAKER: SberJazzCircuitBreakerState | None = None
 
 
 def _now_iso() -> str:
@@ -146,6 +159,149 @@ def _parse_dt(value: str) -> datetime:
         return datetime.now(UTC)
 
 
+def _cb_failure_threshold() -> int:
+    return max(1, int(getattr(get_settings(), "sberjazz_cb_failure_threshold", 5)))
+
+
+def _cb_open_sec() -> int:
+    return max(5, int(getattr(get_settings(), "sberjazz_cb_open_sec", 60)))
+
+
+def _default_cb_state() -> SberJazzCircuitBreakerState:
+    return SberJazzCircuitBreakerState(
+        state="closed",
+        consecutive_failures=0,
+        opened_at=None,
+        last_error=None,
+        updated_at=_now_iso(),
+    )
+
+
+def _save_cb_state_redis(state: SberJazzCircuitBreakerState) -> None:
+    payload = json.dumps(asdict(state), ensure_ascii=False)
+    redis_client().set(_CIRCUIT_BREAKER_KEY, payload, ex=_session_ttl_sec())
+
+
+def _load_cb_state_redis() -> SberJazzCircuitBreakerState | None:
+    raw = redis_client().get(_CIRCUIT_BREAKER_KEY)
+    if not raw:
+        return None
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        return None
+    try:
+        return SberJazzCircuitBreakerState(
+            state=str(data["state"]),
+            consecutive_failures=int(data["consecutive_failures"]),
+            opened_at=str(data["opened_at"]) if data.get("opened_at") else None,
+            last_error=str(data["last_error"]) if data.get("last_error") else None,
+            updated_at=str(data["updated_at"]),
+        )
+    except Exception:
+        return None
+
+
+def _save_cb_state(state: SberJazzCircuitBreakerState) -> SberJazzCircuitBreakerState:
+    global _CIRCUIT_BREAKER
+
+    _CIRCUIT_BREAKER = state
+    try:
+        _save_cb_state_redis(state)
+    except Exception as e:
+        log.warning(
+            "sberjazz_cb_redis_write_failed",
+            extra={"payload": {"error": str(e)[:200]}},
+        )
+    return state
+
+
+def get_sberjazz_circuit_breaker_state() -> SberJazzCircuitBreakerState:
+    global _CIRCUIT_BREAKER
+
+    try:
+        state = _load_cb_state_redis()
+        if state:
+            _CIRCUIT_BREAKER = state
+            return state
+    except Exception as e:
+        log.warning(
+            "sberjazz_cb_redis_read_failed",
+            extra={"payload": {"error": str(e)[:200]}},
+        )
+    if _CIRCUIT_BREAKER:
+        return _CIRCUIT_BREAKER
+    return _default_cb_state()
+
+
+def _before_connector_call(operation: str) -> None:
+    state = get_sberjazz_circuit_breaker_state()
+    if state.state != "open":
+        return
+
+    opened_at = _parse_dt(state.opened_at or _now_iso())
+    age_sec = max(0, int((datetime.now(UTC) - opened_at).total_seconds()))
+    cooldown = _cb_open_sec()
+    if age_sec < cooldown:
+        raise ProviderError(
+            ErrCode.CONNECTOR_PROVIDER_ERROR,
+            "SberJazz connector circuit breaker is open",
+            details={
+                "operation": operation,
+                "retry_after_sec": max(0, cooldown - age_sec),
+                "consecutive_failures": state.consecutive_failures,
+            },
+        )
+
+    _save_cb_state(
+        SberJazzCircuitBreakerState(
+            state="half_open",
+            consecutive_failures=state.consecutive_failures,
+            opened_at=state.opened_at,
+            last_error=state.last_error,
+            updated_at=_now_iso(),
+        )
+    )
+    log.info(
+        "sberjazz_cb_half_open",
+        extra={"payload": {"operation": operation}},
+    )
+
+
+def _on_connector_success() -> None:
+    state = get_sberjazz_circuit_breaker_state()
+    if state.state == "closed" and state.consecutive_failures == 0:
+        return
+    _save_cb_state(_default_cb_state())
+    log.info("sberjazz_cb_closed", extra={"payload": {"reason": "success"}})
+
+
+def _on_connector_failure(*, operation: str, error: str | None) -> None:
+    prev = get_sberjazz_circuit_breaker_state()
+    failures = max(1, prev.consecutive_failures + 1)
+    threshold = _cb_failure_threshold()
+
+    should_open = failures >= threshold or prev.state == "half_open"
+    next_state = SberJazzCircuitBreakerState(
+        state="open" if should_open else "closed",
+        consecutive_failures=failures,
+        opened_at=_now_iso() if should_open else None,
+        last_error=error,
+        updated_at=_now_iso(),
+    )
+    _save_cb_state(next_state)
+    log.warning(
+        "sberjazz_cb_failure",
+        extra={
+            "payload": {
+                "operation": operation,
+                "failures": failures,
+                "threshold": threshold,
+                "state": next_state.state,
+            }
+        },
+    )
+
+
 def list_sberjazz_sessions(limit: int = 100) -> list[SberJazzSessionState]:
     meeting_ids: set[str] = set(_SESSIONS.keys())
     try:
@@ -163,6 +319,7 @@ def list_sberjazz_sessions(limit: int = 100) -> list[SberJazzSessionState]:
 
 
 def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+    _before_connector_call("join")
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
     last_error: str | None = None
@@ -182,6 +339,7 @@ def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
                 "sberjazz_join_success",
                 extra={"payload": {"meeting_id": meeting_id, "attempt": attempt}},
             )
+            _on_connector_success()
             return _save_state(state)
         except Exception as e:
             last_error = str(e)[:300]
@@ -207,6 +365,7 @@ def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
         updated_at=_now_iso(),
     )
     _save_state(state)
+    _on_connector_failure(operation="join", error=last_error)
     raise ProviderError(
         ErrCode.CONNECTOR_PROVIDER_ERROR,
         "SberJazz join не выполнен после retries",
@@ -215,6 +374,7 @@ def join_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
 
 
 def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
+    _before_connector_call("leave")
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
     last_error: str | None = None
@@ -234,6 +394,7 @@ def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
                 "sberjazz_leave_success",
                 extra={"payload": {"meeting_id": meeting_id, "attempt": attempt}},
             )
+            _on_connector_success()
             return _save_state(state)
         except Exception as e:
             last_error = str(e)[:300]
@@ -259,6 +420,7 @@ def leave_sberjazz_meeting(meeting_id: str) -> SberJazzSessionState:
         updated_at=_now_iso(),
     )
     _save_state(state)
+    _on_connector_failure(operation="leave", error=last_error)
     raise ProviderError(
         ErrCode.CONNECTOR_PROVIDER_ERROR,
         "SberJazz leave не выполнен после retries",
@@ -342,12 +504,13 @@ def reconcile_sberjazz_sessions(limit: int = 200) -> SberJazzReconcileResult:
 
 def get_sberjazz_connector_health() -> SberJazzConnectorHealth:
     provider, connector = _resolve_connector()
+    cb = get_sberjazz_circuit_breaker_state()
     if provider == "sberjazz_mock":
         return SberJazzConnectorHealth(
             provider=provider,
             configured=True,
             healthy=True,
-            details={"mode": "mock"},
+            details={"mode": "mock", "circuit_breaker": cb.state},
             updated_at=_now_iso(),
         )
 
@@ -358,7 +521,7 @@ def get_sberjazz_connector_health() -> SberJazzConnectorHealth:
             provider=provider,
             configured=False,
             healthy=False,
-            details={"error": "SBERJAZZ_API_BASE is empty"},
+            details={"error": "SBERJAZZ_API_BASE is empty", "circuit_breaker": cb.state},
             updated_at=_now_iso(),
         )
 
@@ -371,7 +534,7 @@ def get_sberjazz_connector_health() -> SberJazzConnectorHealth:
             provider=provider,
             configured=True,
             healthy=True,
-            details={},
+            details={"circuit_breaker": cb.state},
             updated_at=_now_iso(),
         )
     except Exception as e:
@@ -379,6 +542,6 @@ def get_sberjazz_connector_health() -> SberJazzConnectorHealth:
             provider=provider,
             configured=True,
             healthy=False,
-            details={"error": str(e)[:300]},
+            details={"error": str(e)[:300], "circuit_breaker": cb.state},
             updated_at=_now_iso(),
         )

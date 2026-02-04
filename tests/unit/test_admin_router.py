@@ -43,6 +43,7 @@ def auth_settings():
         "jwt_service_permission_claim",
         "jwt_service_required_scopes_admin_read",
         "jwt_service_required_scopes_admin_write",
+        "jwt_service_required_scopes_ws_internal",
     ]
     snapshot = {k: getattr(s, k) for k in keys}
     try:
@@ -94,7 +95,7 @@ def test_admin_queue_health_allows_service_jwt(monkeypatch, auth_settings) -> No
     auth_settings.jwt_service_claim_key = "token_type"
     auth_settings.jwt_service_claim_values = "service,m2m"
     auth_settings.jwt_service_permission_claim = "scope"
-    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read"
+    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read,agent.admin"
 
     monkeypatch.setattr("apps.api_gateway.routers.admin.redis_client", lambda: _FakeRedis())
     client = TestClient(app)
@@ -117,7 +118,7 @@ def test_admin_queue_health_denies_service_jwt_without_scope(monkeypatch, auth_s
     auth_settings.jwt_service_claim_key = "token_type"
     auth_settings.jwt_service_claim_values = "service,m2m"
     auth_settings.jwt_service_permission_claim = "scope"
-    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read"
+    auth_settings.jwt_service_required_scopes_admin_read = "agent.admin.read,agent.admin"
 
     monkeypatch.setattr("apps.api_gateway.routers.admin.redis_client", lambda: _FakeRedis())
     client = TestClient(app)
@@ -289,6 +290,30 @@ def test_admin_sberjazz_sessions_and_reconcile(monkeypatch, auth_settings) -> No
     reconcile = client.post("/v1/admin/connectors/sberjazz/reconcile?limit=50", headers=headers)
     assert reconcile.status_code == 200
     assert reconcile.json()["reconnected"] == 1
+
+
+def test_admin_sberjazz_circuit_breaker(monkeypatch, auth_settings) -> None:
+    auth_settings.auth_mode = "api_key"
+    auth_settings.service_api_keys = "svc-1"
+
+    monkeypatch.setattr(
+        "apps.api_gateway.routers.admin.get_sberjazz_circuit_breaker_state",
+        lambda: SimpleNamespace(
+            state="open",
+            consecutive_failures=7,
+            opened_at="2026-02-04T19:00:00+00:00",
+            last_error="provider timeout",
+            updated_at="2026-02-04T19:00:00+00:00",
+        ),
+    )
+
+    client = TestClient(app)
+    resp = client.get(
+        "/v1/admin/connectors/sberjazz/circuit-breaker",
+        headers={"X-API-Key": "svc-1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "open"
 
 
 def test_admin_security_audit_list(monkeypatch, auth_settings) -> None:

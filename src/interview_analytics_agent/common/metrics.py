@@ -85,6 +85,11 @@ SBERJAZZ_CONNECTOR_HEALTH = Gauge(
     "Состояние SberJazz connector (1=healthy, 0=unhealthy)",
 )
 
+SBERJAZZ_CIRCUIT_BREAKER_OPEN = Gauge(
+    "agent_sberjazz_circuit_breaker_open",
+    "Состояние circuit breaker SberJazz connector (1=open, 0=closed/half_open)",
+)
+
 SBERJAZZ_RECONCILE_RUNS_TOTAL = Counter(
     "agent_sberjazz_reconcile_runs_total",
     "Количество запусков reconcile для SberJazz connector",
@@ -160,6 +165,7 @@ def refresh_queue_metrics() -> None:
 def refresh_connector_metrics() -> None:
     try:
         from interview_analytics_agent.services.sberjazz_service import (
+            get_sberjazz_circuit_breaker_state,
             get_sberjazz_connector_health,
             list_sberjazz_sessions,
         )
@@ -172,6 +178,8 @@ def refresh_connector_metrics() -> None:
 
         health = get_sberjazz_connector_health()
         SBERJAZZ_CONNECTOR_HEALTH.set(1 if health.healthy else 0)
+        cb = get_sberjazz_circuit_breaker_state()
+        SBERJAZZ_CIRCUIT_BREAKER_OPEN.set(1 if cb.state == "open" else 0)
     except Exception:
         METRICS_COLLECTION_ERRORS_TOTAL.labels(source="connector_metrics").inc()
 

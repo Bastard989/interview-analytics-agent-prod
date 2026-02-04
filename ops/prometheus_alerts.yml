@@ -66,3 +66,13 @@ groups:
           summary: "SberJazz reconcile reports failures"
           description: "Последний reconcile зафиксировал {{ $value }} failed reconnect."
           runbook_url: "docs/runbooks/alerts.md#sberjazzreconcilehasfailures"
+
+      - alert: SberJazzCircuitBreakerOpen
+        expr: agent_sberjazz_circuit_breaker_open == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SberJazz circuit breaker is open"
+          description: "Connector circuit breaker открыт и блокирует операции join/leave."
+          runbook_url: "docs/runbooks/alerts.md#sberjazzcircuitbreakeropen"

@@ -18,16 +18,22 @@ def test_refresh_connector_metrics_sets_gauges(monkeypatch) -> None:
         "interview_analytics_agent.services.sberjazz_service.get_sberjazz_connector_health",
         lambda: SimpleNamespace(healthy=True),
     )
+    monkeypatch.setattr(
+        "interview_analytics_agent.services.sberjazz_service.get_sberjazz_circuit_breaker_state",
+        lambda: SimpleNamespace(state="closed"),
+    )
 
     metrics.refresh_connector_metrics()
 
     connected = metrics.SBERJAZZ_SESSIONS_TOTAL.labels(state="connected")._value.get()
     disconnected = metrics.SBERJAZZ_SESSIONS_TOTAL.labels(state="disconnected")._value.get()
     healthy = metrics.SBERJAZZ_CONNECTOR_HEALTH._value.get()
+    cb_open = metrics.SBERJAZZ_CIRCUIT_BREAKER_OPEN._value.get()
 
     assert connected == 2
     assert disconnected == 1
     assert healthy == 1
+    assert cb_open == 0
 
 
 def test_record_reconcile_metrics_sets_last_values() -> None:

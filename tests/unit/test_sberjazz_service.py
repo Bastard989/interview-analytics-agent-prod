@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from contextlib import suppress
+
+from interview_analytics_agent.common.config import get_settings
+from interview_analytics_agent.common.errors import ProviderError
 from interview_analytics_agent.services import sberjazz_service
 
 
@@ -52,6 +56,7 @@ def test_join_state_persisted_and_readable_from_redis(monkeypatch) -> None:
         lambda: ("sberjazz_mock", fake_connector),
     )
     sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
 
     joined = sberjazz_service.join_sberjazz_meeting("meeting-1")
     assert joined.connected is True
@@ -74,6 +79,7 @@ def test_reconnect_calls_leave_then_join_when_connected(monkeypatch) -> None:
         lambda: ("sberjazz_mock", fake_connector),
     )
     sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
 
     sberjazz_service.join_sberjazz_meeting("meeting-2")
     reconnected = sberjazz_service.reconnect_sberjazz_meeting("meeting-2")
@@ -88,6 +94,7 @@ def test_reconcile_reconnects_stale_sessions(monkeypatch) -> None:
     monkeypatch.setattr(sberjazz_service, "redis_client", lambda: fake_redis)
 
     sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
     sberjazz_service._SESSIONS["stale-1"] = sberjazz_service.SberJazzSessionState(
         meeting_id="stale-1",
         provider="sberjazz_mock",
@@ -125,3 +132,49 @@ def test_reconcile_reconnects_stale_sessions(monkeypatch) -> None:
     assert result.stale >= 1
     assert result.reconnected >= 1
     assert "stale-1" in called
+
+
+def test_circuit_breaker_opens_and_blocks_calls(monkeypatch) -> None:
+    class _FailingConnector(_FakeConnector):
+        def join(self, meeting_id: str):
+            self.join_calls += 1
+            raise RuntimeError(f"provider_down:{meeting_id}")
+
+    fake_redis = _FakeRedis()
+    failing_connector = _FailingConnector()
+    monkeypatch.setattr(sberjazz_service, "redis_client", lambda: fake_redis)
+    monkeypatch.setattr(
+        sberjazz_service,
+        "_resolve_connector",
+        lambda: ("sberjazz", failing_connector),
+    )
+    sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
+
+    settings = get_settings()
+    prev_retries = settings.sberjazz_retries
+    prev_threshold = settings.sberjazz_cb_failure_threshold
+    prev_open_sec = settings.sberjazz_cb_open_sec
+    settings.sberjazz_retries = 0
+    settings.sberjazz_cb_failure_threshold = 2
+    settings.sberjazz_cb_open_sec = 600
+
+    try:
+        for _ in range(2):
+            with suppress(ProviderError):
+                sberjazz_service.join_sberjazz_meeting("cb-1")
+
+        state = sberjazz_service.get_sberjazz_circuit_breaker_state()
+        assert state.state == "open"
+        assert state.consecutive_failures >= 2
+
+        with_provider_calls = failing_connector.join_calls
+        try:
+            sberjazz_service.join_sberjazz_meeting("cb-1")
+        except ProviderError as e:
+            assert "circuit breaker is open" in e.message
+        assert failing_connector.join_calls == with_provider_calls
+    finally:
+        settings.sberjazz_retries = prev_retries
+        settings.sberjazz_cb_failure_threshold = prev_threshold
+        settings.sberjazz_cb_open_sec = prev_open_sec
