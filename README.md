@@ -102,6 +102,8 @@ SberJazz HTTP resilience:
 - `SBERJAZZ_HTTP_RETRY_STATUSES`
 - `SBERJAZZ_OP_LOCK_TTL_SEC` (защита от параллельных join/reconnect/leave для одной встречи)
 - `SBERJAZZ_CB_AUTO_RESET_ENABLED` / `SBERJAZZ_CB_AUTO_RESET_MIN_AGE_SEC` (self-healing breaker через reconciliation worker)
+- Для non-retryable provider ошибок (auth/bad-request/invalid-response) join/leave/live-pull
+  не тратят лишние retry-итерации (fail-fast).
 
 ## Storage mode (production)
 

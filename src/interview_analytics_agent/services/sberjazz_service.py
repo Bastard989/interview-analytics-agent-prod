@@ -47,6 +47,12 @@ _LIVE_CURSOR_KEY_PREFIX = "connector:sberjazz:live_cursor:"
 _LIVE_SEQ_KEY_PREFIX = "connector:sberjazz:live_seq:"
 _LIVE_FAIL_COUNT_KEY_PREFIX = "connector:sberjazz:live_fail_count:"
 
+_NON_RETRYABLE_CONNECTOR_CODES = {
+    ErrCode.CONNECTOR_AUTH_ERROR,
+    ErrCode.CONNECTOR_BAD_REQUEST,
+    ErrCode.CONNECTOR_INVALID_RESPONSE,
+}
+
 
 @dataclass
 class SberJazzCircuitBreakerState:
@@ -262,6 +268,12 @@ def _touch_connected_state(meeting_id: str) -> None:
     _save_state(state)
 
 
+def _is_retryable_connector_error(exc: Exception) -> bool:
+    if not isinstance(exc, ProviderError):
+        return True
+    return exc.code not in _NON_RETRYABLE_CONNECTOR_CODES
+
+
 def get_sberjazz_meeting_state(meeting_id: str) -> SberJazzSessionState:
     try:
         state = _load_state_redis(meeting_id)
@@ -474,6 +486,7 @@ def _join_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
     last_error: str | None = None
+    last_exc: Exception | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -493,6 +506,7 @@ def _join_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
             _on_connector_success()
             return _save_state(state)
         except Exception as e:
+            last_exc = e
             last_error = str(e)[:300]
             log.warning(
                 "sberjazz_join_retry",
@@ -504,7 +518,10 @@ def _join_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
                     }
                 },
             )
-            if attempt < attempts and backoff_sec > 0:
+            retryable = _is_retryable_connector_error(e)
+            if (not retryable) or attempt >= attempts:
+                break
+            if backoff_sec > 0:
                 time.sleep(backoff_sec * attempt)
 
     state = SberJazzSessionState(
@@ -517,6 +534,8 @@ def _join_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     )
     _save_state(state)
     _on_connector_failure(operation="join", error=last_error)
+    if isinstance(last_exc, ProviderError):
+        raise last_exc
     raise ProviderError(
         ErrCode.CONNECTOR_PROVIDER_ERROR,
         "SberJazz join не выполнен после retries",
@@ -534,6 +553,7 @@ def _leave_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     provider, connector = _resolve_connector()
     attempts, backoff_sec = _retry_config()
     last_error: str | None = None
+    last_exc: Exception | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -553,6 +573,7 @@ def _leave_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
             _on_connector_success()
             return _save_state(state)
         except Exception as e:
+            last_exc = e
             last_error = str(e)[:300]
             log.warning(
                 "sberjazz_leave_retry",
@@ -564,7 +585,10 @@ def _leave_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
                     }
                 },
             )
-            if attempt < attempts and backoff_sec > 0:
+            retryable = _is_retryable_connector_error(e)
+            if (not retryable) or attempt >= attempts:
+                break
+            if backoff_sec > 0:
                 time.sleep(backoff_sec * attempt)
 
     state = SberJazzSessionState(
@@ -577,6 +601,8 @@ def _leave_sberjazz_meeting_impl(meeting_id: str) -> SberJazzSessionState:
     )
     _save_state(state)
     _on_connector_failure(operation="leave", error=last_error)
+    if isinstance(last_exc, ProviderError):
+        raise last_exc
     raise ProviderError(
         ErrCode.CONNECTOR_PROVIDER_ERROR,
         "SberJazz leave не выполнен после retries",
@@ -741,7 +767,8 @@ def _pull_live_for_meeting(meeting_id: str, *, batch_limit: int) -> tuple[int, i
             payload = fetch_fn(meeting_id, cursor=cursor, limit=max(1, int(batch_limit))) or {}
             break
         except Exception as e:
-            if attempt >= attempts:
+            retryable = _is_retryable_connector_error(e)
+            if attempt >= attempts or not retryable:
                 raise
             log.warning(
                 "sberjazz_live_pull_retry",

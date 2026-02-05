@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from interview_analytics_agent.common.config import get_settings
-from interview_analytics_agent.common.errors import ProviderError
+from interview_analytics_agent.common.errors import ErrCode, ProviderError
 from interview_analytics_agent.connectors.salutejazz.adapter import SaluteJazzConnector
 
 
@@ -48,7 +48,9 @@ def test_adapter_retries_retryable_status(monkeypatch) -> None:
         return _Resp(200, {"ok": True})
 
     monkeypatch.setattr("requests.request", _fake_request)
-    monkeypatch.setattr("interview_analytics_agent.connectors.salutejazz.adapter.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "interview_analytics_agent.connectors.salutejazz.adapter.time.sleep", lambda _: None
+    )
     try:
         conn = SaluteJazzConnector(base_url="https://example.test")
         data = conn._request("GET", "/api/v1/health")
@@ -69,6 +71,7 @@ def test_adapter_unauthorized_no_retry(monkeypatch) -> None:
     with pytest.raises(ProviderError) as e:
         conn._request("GET", "/api/v1/health")
     assert "авторизации" in e.value.message
+    assert e.value.code == ErrCode.CONNECTOR_AUTH_ERROR
     assert e.value.details and e.value.details.get("status_code") == 401
 
 
@@ -84,12 +87,32 @@ def test_adapter_timeout_retries_and_fails(monkeypatch) -> None:
         raise requests.Timeout("timeout")
 
     monkeypatch.setattr("requests.request", _fake_request)
-    monkeypatch.setattr("interview_analytics_agent.connectors.salutejazz.adapter.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "interview_analytics_agent.connectors.salutejazz.adapter.time.sleep", lambda _: None
+    )
     try:
         conn = SaluteJazzConnector(base_url="https://example.test")
         with pytest.raises(ProviderError) as e:
             conn._request("GET", "/api/v1/health")
-        assert "Ошибка обращения к SberJazz API" in e.value.message
+        assert "Таймаут" in e.value.message
+        assert e.value.code == ErrCode.CONNECTOR_TIMEOUT
         assert calls["n"] == 2
     finally:
         s.sberjazz_http_retries = prev_retries
+
+
+def test_adapter_invalid_json_response(monkeypatch) -> None:
+    class _BadJsonResp(_Resp):
+        def __init__(self) -> None:
+            super().__init__(200, payload=None, text="oops")
+            self.content = b"not-json"
+
+    def _fake_request(**kwargs):
+        _ = kwargs
+        return _BadJsonResp()
+
+    monkeypatch.setattr("requests.request", _fake_request)
+    conn = SaluteJazzConnector(base_url="https://example.test")
+    with pytest.raises(ProviderError) as e:
+        conn._request("GET", "/api/v1/health")
+    assert e.value.code == ErrCode.CONNECTOR_INVALID_RESPONSE

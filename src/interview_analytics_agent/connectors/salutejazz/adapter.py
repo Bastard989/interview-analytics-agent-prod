@@ -75,7 +75,7 @@ class SaluteJazzConnector(MeetingConnector):
     ) -> dict:
         if not self.base_url:
             raise ProviderError(
-                ErrCode.CONNECTOR_PROVIDER_ERROR,
+                ErrCode.CONNECTOR_BAD_REQUEST,
                 "SBERJAZZ_API_BASE не настроен",
             )
 
@@ -98,14 +98,24 @@ class SaluteJazzConnector(MeetingConnector):
                     headers=headers,
                     timeout=self.timeout_sec,
                 )
-            except (requests.Timeout, requests.ConnectionError) as e:
+            except requests.Timeout as e:
                 last_error = str(e)
                 if attempt < attempts:
                     time.sleep(self.http_retry_backoff_sec * attempt)
                     continue
                 raise ProviderError(
-                    ErrCode.CONNECTOR_PROVIDER_ERROR,
-                    "Ошибка обращения к SberJazz API",
+                    ErrCode.CONNECTOR_TIMEOUT,
+                    "Таймаут обращения к SberJazz API",
+                    details={"err": last_error, "attempts": attempts, "url": url},
+                ) from e
+            except requests.ConnectionError as e:
+                last_error = str(e)
+                if attempt < attempts:
+                    time.sleep(self.http_retry_backoff_sec * attempt)
+                    continue
+                raise ProviderError(
+                    ErrCode.CONNECTOR_UNAVAILABLE,
+                    "SberJazz API недоступен",
                     details={"err": last_error, "attempts": attempts, "url": url},
                 ) from e
             except requests.RequestException as e:
@@ -123,12 +133,16 @@ class SaluteJazzConnector(MeetingConnector):
                     data = resp.json()
                     return data if isinstance(data, dict) else {}
                 except ValueError:
-                    return {}
+                    raise ProviderError(
+                        ErrCode.CONNECTOR_INVALID_RESPONSE,
+                        "SberJazz API вернул невалидный JSON",
+                        details={"status_code": resp.status_code, "url": url},
+                    ) from None
 
             body = self._safe_response_text(resp)
             if resp.status_code in {401, 403}:
                 raise ProviderError(
-                    ErrCode.CONNECTOR_PROVIDER_ERROR,
+                    ErrCode.CONNECTOR_AUTH_ERROR,
                     "Ошибка авторизации SberJazz API",
                     details={"status_code": resp.status_code, "body": body, "url": url},
                 )
@@ -137,6 +151,27 @@ class SaluteJazzConnector(MeetingConnector):
                 time.sleep(self.http_retry_backoff_sec * attempt)
                 continue
 
+            if resp.status_code == 429:
+                raise ProviderError(
+                    ErrCode.CONNECTOR_RATE_LIMIT,
+                    "Превышен лимит запросов SberJazz API",
+                    details={"status_code": resp.status_code, "body": body, "url": url},
+                )
+
+            if resp.status_code in {400, 404, 422}:
+                raise ProviderError(
+                    ErrCode.CONNECTOR_BAD_REQUEST,
+                    "Неверный запрос к SberJazz API",
+                    details={"status_code": resp.status_code, "body": body, "url": url},
+                )
+
+            if resp.status_code >= 500:
+                raise ProviderError(
+                    ErrCode.CONNECTOR_UNAVAILABLE,
+                    "SberJazz API временно недоступен",
+                    details={"status_code": resp.status_code, "body": body, "url": url},
+                )
+
             raise ProviderError(
                 ErrCode.CONNECTOR_PROVIDER_ERROR,
                 "SberJazz API вернул ошибку",
@@ -144,7 +179,7 @@ class SaluteJazzConnector(MeetingConnector):
             )
 
         raise ProviderError(
-            ErrCode.CONNECTOR_PROVIDER_ERROR,
+            ErrCode.CONNECTOR_UNAVAILABLE,
             "Ошибка обращения к SberJazz API",
             details={"status_code": last_status, "err": last_error, "url": url},
         )

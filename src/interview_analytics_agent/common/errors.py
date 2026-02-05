@@ -31,6 +31,12 @@ class ErrCode:
     LLM_PROVIDER_ERROR = "llm_provider_error"
     DELIVERY_PROVIDER_ERROR = "delivery_provider_error"
     CONNECTOR_PROVIDER_ERROR = "connector_provider_error"
+    CONNECTOR_AUTH_ERROR = "connector_auth_error"
+    CONNECTOR_TIMEOUT = "connector_timeout"
+    CONNECTOR_RATE_LIMIT = "connector_rate_limit"
+    CONNECTOR_UNAVAILABLE = "connector_unavailable"
+    CONNECTOR_BAD_REQUEST = "connector_bad_request"
+    CONNECTOR_INVALID_RESPONSE = "connector_invalid_response"
 
     # Инфра/хранилища
     DB_ERROR = "db_error"

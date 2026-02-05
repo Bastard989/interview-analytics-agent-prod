@@ -5,7 +5,7 @@ from contextlib import suppress
 import pytest
 
 from interview_analytics_agent.common.config import get_settings
-from interview_analytics_agent.common.errors import ProviderError
+from interview_analytics_agent.common.errors import ErrCode, ProviderError
 from interview_analytics_agent.services import sberjazz_service
 
 
@@ -206,6 +206,38 @@ def test_circuit_breaker_opens_and_blocks_calls(monkeypatch) -> None:
         settings.sberjazz_retries = prev_retries
         settings.sberjazz_cb_failure_threshold = prev_threshold
         settings.sberjazz_cb_open_sec = prev_open_sec
+
+
+def test_join_does_not_retry_on_non_retryable_provider_error(monkeypatch) -> None:
+    class _AuthFailConnector(_FakeConnector):
+        def join(self, meeting_id: str):
+            self.join_calls += 1
+            raise ProviderError(
+                ErrCode.CONNECTOR_AUTH_ERROR,
+                f"bad token for {meeting_id}",
+            )
+
+    fake_redis = _FakeRedis()
+    connector = _AuthFailConnector()
+    monkeypatch.setattr(sberjazz_service, "redis_client", lambda: fake_redis)
+    monkeypatch.setattr(
+        sberjazz_service,
+        "_resolve_connector",
+        lambda: ("sberjazz", connector),
+    )
+    sberjazz_service._SESSIONS.clear()
+    sberjazz_service._CIRCUIT_BREAKER = None
+
+    settings = get_settings()
+    prev_retries = settings.sberjazz_retries
+    settings.sberjazz_retries = 5
+    try:
+        with pytest.raises(ProviderError) as e:
+            sberjazz_service.join_sberjazz_meeting("auth-fail-1")
+        assert e.value.code == ErrCode.CONNECTOR_AUTH_ERROR
+        assert connector.join_calls == 1
+    finally:
+        settings.sberjazz_retries = prev_retries
 
 
 def test_join_rejected_when_meeting_lock_is_busy(monkeypatch) -> None:
