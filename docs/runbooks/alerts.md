@@ -5,14 +5,36 @@
 1. Поднять observability-профиль: `docker compose --profile observability up -d`.
 2. Запустить smoke: `make alerts-smoke`.
 3. Проверить relay health: `curl -fsS http://localhost:9081/health`.
-4. Проверить sink статистику: `curl -fsS http://localhost:9080/stats`.
-5. Ожидаемо: минимум 1 `warning` и 1 `critical` событие.
+4. Проверить relay metrics: `curl -fsS http://localhost:9081/metrics`.
+5. Проверить sink статистику: `curl -fsS http://localhost:9080/stats`.
+6. Ожидаемо: минимум 1 `warning` и 1 `critical` событие.
 
 Для production routing:
 - Укажи внешние webhook URL через `ALERT_RELAY_*_TARGET_URL`.
 - При необходимости включи shadow-доставку через `ALERT_RELAY_*_SHADOW_URL`.
 - Для нестабильных внешних каналов настрой retry relay:
   `ALERT_RELAY_RETRIES`, `ALERT_RELAY_RETRY_BACKOFF_MS`, `ALERT_RELAY_RETRY_STATUSES`.
+
+## AlertRelayDown
+
+1. Проверить контейнер `alert-relay`: `docker compose ps alert-relay`.
+2. Проверить логи: `docker compose logs --no-color --tail=300 alert-relay`.
+3. Проверить `/health` и `/metrics` внутри контейнера.
+4. После восстановления убедиться, что `up{job="alert-relay"} == 1`.
+
+## AlertRelayDeliveryErrors
+
+1. Проверить последние ошибки relay в логах `alert-relay` (target/shadow URL, тип ошибки).
+2. Проверить доступность внешнего webhook-провайдера (Slack/PagerDuty/и т.д.).
+3. При необходимости временно переключить доставку на shadow URL.
+4. После фикса убедиться, что `increase(agent_alert_relay_forward_total{result="error"}[10m]) == 0`.
+
+## AlertRelayRetriesHigh
+
+1. Проверить метрику retry по labels (`channel`, `target`, `reason`).
+2. Если причина `http_429`/`http_503` — проверить rate limits и SLA внешнего провайдера.
+3. Увеличить `ALERT_RELAY_RETRY_BACKOFF_MS` и/или уменьшить частоту алертов.
+4. Подтвердить снижение `increase(agent_alert_relay_retries_total[10m])`.
 
 ## ApiGatewayDown
 

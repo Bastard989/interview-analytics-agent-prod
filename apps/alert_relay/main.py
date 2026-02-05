@@ -15,10 +15,32 @@ from typing import Any
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from starlette.responses import Response
 
 app = FastAPI(title="Alert Relay", version="1.0.0")
 
 _ALLOWED_CHANNELS = {"default", "warning", "critical"}
+_METRIC_LABELS = ("channel", "target")
+
+ALERT_RELAY_FORWARD_TOTAL = Counter(
+    "agent_alert_relay_forward_total",
+    "Число forward операций alert-relay по результату.",
+    [*_METRIC_LABELS, "result"],
+)
+
+ALERT_RELAY_RETRIES_TOTAL = Counter(
+    "agent_alert_relay_retries_total",
+    "Число retry попыток alert-relay.",
+    [*_METRIC_LABELS, "reason"],
+)
+
+ALERT_RELAY_FORWARD_ATTEMPT_LATENCY_MS = Histogram(
+    "agent_alert_relay_forward_attempt_latency_ms",
+    "Латентность одной попытки доставки alert-relay (мс).",
+    [*_METRIC_LABELS],
+    buckets=(25, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
+)
 
 
 def _read_bool(name: str, default: bool) -> bool:
@@ -83,16 +105,40 @@ def _shadow_url(channel: str) -> str:
     return (os.getenv(f"ALERT_RELAY_{c}_SHADOW_URL", "") or "").strip()
 
 
-def _forward(*, url: str, payload: dict[str, Any]) -> None:
+def _forward(*, url: str, payload: dict[str, Any], channel: str, target: str) -> None:
     attempts = _retry_count() + 1
     retry_statuses = _retry_statuses()
     backoff_sec = _retry_backoff_sec()
 
     for attempt in range(1, attempts + 1):
+        started = time.perf_counter()
         try:
             resp = requests.post(url, json=payload, timeout=_timeout_sec())
-        except (requests.Timeout, requests.ConnectionError):
+            ALERT_RELAY_FORWARD_ATTEMPT_LATENCY_MS.labels(channel=channel, target=target).observe(
+                (time.perf_counter() - started) * 1000.0
+            )
+        except requests.Timeout:
+            ALERT_RELAY_FORWARD_ATTEMPT_LATENCY_MS.labels(channel=channel, target=target).observe(
+                (time.perf_counter() - started) * 1000.0
+            )
+            reason = "timeout"
             if attempt < attempts:
+                ALERT_RELAY_RETRIES_TOTAL.labels(
+                    channel=channel, target=target, reason=reason
+                ).inc()
+                if backoff_sec > 0:
+                    time.sleep(backoff_sec * attempt)
+                continue
+            raise
+        except requests.ConnectionError:
+            ALERT_RELAY_FORWARD_ATTEMPT_LATENCY_MS.labels(channel=channel, target=target).observe(
+                (time.perf_counter() - started) * 1000.0
+            )
+            reason = "connection_error"
+            if attempt < attempts:
+                ALERT_RELAY_RETRIES_TOTAL.labels(
+                    channel=channel, target=target, reason=reason
+                ).inc()
                 if backoff_sec > 0:
                     time.sleep(backoff_sec * attempt)
                 continue
@@ -100,6 +146,9 @@ def _forward(*, url: str, payload: dict[str, Any]) -> None:
 
         if resp.status_code >= 400:
             if resp.status_code in retry_statuses and attempt < attempts:
+                ALERT_RELAY_RETRIES_TOTAL.labels(
+                    channel=channel, target=target, reason=f"http_{resp.status_code}"
+                ).inc()
                 if backoff_sec > 0:
                     time.sleep(backoff_sec * attempt)
                 continue
@@ -124,6 +173,11 @@ def health() -> dict[str, Any]:
         "retry_statuses": sorted(_retry_statuses()),
         "channels": channels,
     }
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/webhook/{channel}")
@@ -152,9 +206,11 @@ async def webhook(channel: str, request: Request) -> dict[str, Any]:
     errors: list[str] = []
     for kind, url in targets:
         try:
-            _forward(url=url, payload=payload)
+            _forward(url=url, payload=payload, channel=ch, target=kind)
+            ALERT_RELAY_FORWARD_TOTAL.labels(channel=ch, target=kind, result="ok").inc()
             forwarded += 1
         except Exception as e:
+            ALERT_RELAY_FORWARD_TOTAL.labels(channel=ch, target=kind, result="error").inc()
             errors.append(f"{kind}:{url}:{str(e)[:200]}")
 
     if errors and _fail_on_error():

@@ -139,6 +139,9 @@ SberJazz HTTP resilience:
 - `agent_sberjazz_live_pull_last_scanned|connected|pulled|ingested|failed|invalid_chunks`
 - `agent_storage_health{mode="local_fs|shared_fs"}`
 - `agent_system_readiness`
+- `agent_alert_relay_forward_total{channel,target,result}`
+- `agent_alert_relay_retries_total{channel,target,reason}`
+- `agent_alert_relay_forward_attempt_latency_ms`
 
 Alert routing:
 - Alertmanager использует severity-маршрутизацию (`default` / `warning` / `critical`).

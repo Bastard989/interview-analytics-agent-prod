@@ -143,3 +143,32 @@ def test_webhook_non_retryable_status_fails_immediately(monkeypatch) -> None:
     resp = client.post("/webhook/critical", json={"alerts": []})
     assert resp.status_code == 502
     assert len(calls) == 1
+
+
+def test_metrics_endpoint_exposes_alert_relay_metrics(monkeypatch) -> None:
+    monkeypatch.setenv("ALERT_RELAY_DEFAULT_TARGET_URL", "https://example.test/default")
+    monkeypatch.setenv("ALERT_RELAY_FAIL_ON_ERROR", "true")
+    monkeypatch.setenv("ALERT_RELAY_RETRIES", "1")
+    monkeypatch.setenv("ALERT_RELAY_RETRY_BACKOFF_MS", "0")
+    monkeypatch.setenv("ALERT_RELAY_RETRY_STATUSES", "503")
+    calls: list[str] = []
+
+    def _fake_post(url: str, json: dict, timeout: int):
+        _ = json, timeout
+        calls.append(url)
+        if len(calls) == 1:
+            return _Resp(503)
+        return _Resp(200)
+
+    monkeypatch.setattr(relay.requests, "post", _fake_post)
+    client = TestClient(relay.app)
+    resp = client.post("/webhook/default", json={"alerts": []})
+    assert resp.status_code == 200
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "text/plain" in metrics.headers.get("content-type", "")
+    body = metrics.text
+    assert "agent_alert_relay_forward_total" in body
+    assert "agent_alert_relay_retries_total" in body
+    assert 'channel="default"' in body

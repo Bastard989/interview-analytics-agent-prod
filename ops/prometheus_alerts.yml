@@ -11,6 +11,38 @@ groups:
           description: "Prometheus cannot scrape api-gateway for more than 2 minutes."
           runbook_url: "docs/runbooks/alerts.md#apigatewaydown"
 
+      - alert: AlertRelayDown
+        expr: up{job="alert-relay"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alert relay is down"
+          description: "Prometheus cannot scrape alert-relay for more than 2 minutes."
+          runbook_url: "docs/runbooks/alerts.md#alertrelaydown"
+
+  - name: agent-alert-relay
+    rules:
+      - alert: AlertRelayDeliveryErrors
+        expr: increase(agent_alert_relay_forward_total{result="error"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert relay has delivery errors"
+          description: "За последние 10 минут relay зафиксировал ошибки доставки."
+          runbook_url: "docs/runbooks/alerts.md#alertrelaydeliveryerrors"
+
+      - alert: AlertRelayRetriesHigh
+        expr: increase(agent_alert_relay_retries_total[10m]) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert relay retry rate is high"
+          description: "За 10 минут количество retry relay превысило 30."
+          runbook_url: "docs/runbooks/alerts.md#alertrelayretrieshigh"
+
   - name: agent-queues
     rules:
       - alert: QueueBacklogHigh
