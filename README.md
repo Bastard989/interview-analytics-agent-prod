@@ -148,6 +148,7 @@ SberJazz HTTP resilience:
 
 Запуск:
 - `kubectl apply -k deploy/k8s/base`
+- `kubectl apply -k deploy/k8s/overlays/prod` (HPA + prod overrides)
 
 Перед запуском:
 - замените `image` в `deploy/k8s/base/*` на ваш registry/tag

@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
@@ -66,6 +67,11 @@ def _args() -> argparse.Namespace:
         "--report-json",
         default="reports/realtime_load_guardrail.json",
         help="Path to JSON report",
+    )
+    p.add_argument(
+        "--require-real-connector",
+        action="store_true",
+        help="Require MEETING_CONNECTOR_PROVIDER=sberjazz when running guardrail.",
     )
     return p.parse_args()
 
@@ -214,6 +220,11 @@ def _load_total_dlq_depth(*, base_url: str, service_key: str) -> int:
 def main() -> int:
     args = _args()
     base_url = args.base_url.rstrip("/")
+    if args.require_real_connector:
+        provider = (os.getenv("MEETING_CONNECTOR_PROVIDER", "") or "").strip().lower()
+        if provider != "sberjazz":
+            print("require_real_connector_failed: MEETING_CONNECTOR_PROVIDER is not sberjazz")
+            return 2
 
     started_at = time.time()
     run_id = int(started_at)

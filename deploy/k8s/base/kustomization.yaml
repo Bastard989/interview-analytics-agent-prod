@@ -10,6 +10,9 @@ resources:
   - pvc.yaml
   - api-deployment.yaml
   - api-service.yaml
+  - api-pdb.yaml
+  - worker-stt-pdb.yaml
+  - worker-analytics-pdb.yaml
   - worker-stt.yaml
   - worker-enhancer.yaml
   - worker-analytics.yaml

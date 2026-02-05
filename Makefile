@@ -108,6 +108,12 @@ load-guardrail:
 ws-guardrail:
 	$(PYTHON) tools/ws_contours_guardrail.py
 
+load-guardrail-real:
+	MEETING_CONNECTOR_PROVIDER=sberjazz $(PYTHON) tools/realtime_load_guardrail.py --require-real-connector
+
+ws-guardrail-real:
+	MEETING_CONNECTOR_PROVIDER=sberjazz $(PYTHON) tools/ws_contours_guardrail.py --require-real-connector
+
 perf-guardrail-lite:
 	$(PYTHON) tools/realtime_load_guardrail.py \
 		--base-url http://127.0.0.1:8010 \

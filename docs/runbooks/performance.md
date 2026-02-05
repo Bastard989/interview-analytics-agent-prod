@@ -15,6 +15,17 @@
    - stdout: `load guardrail OK|FAILED`
    - отчеты: `reports/realtime_load_guardrail.json`, `reports/ws_contours_guardrail.json`
 
+## Guardrails для real-коннектора (SberJazz)
+
+Если тестируешь продовый контур:
+
+- `make load-guardrail-real`
+- `make ws-guardrail-real`
+
+Требования:
+- `MEETING_CONNECTOR_PROVIDER=sberjazz`
+- валидные `API_KEYS` и `SERVICE_API_KEYS`
+
 ## CI latency gate (light)
 
 - В `CI` и `Release` используется облегченный performance gate на `STT_PROVIDER=mock`.

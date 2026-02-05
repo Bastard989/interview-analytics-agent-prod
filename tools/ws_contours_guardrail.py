@@ -9,6 +9,7 @@ import asyncio
 import base64
 import json
 import math
+import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -60,6 +61,11 @@ def _args() -> argparse.Namespace:
         "--report-json",
         default="reports/ws_contours_guardrail.json",
         help="Path to JSON report",
+    )
+    p.add_argument(
+        "--require-real-connector",
+        action="store_true",
+        help="Require MEETING_CONNECTOR_PROVIDER=sberjazz when running guardrail.",
     )
     return p.parse_args()
 
@@ -248,6 +254,12 @@ async def _run_one_meeting(
 
 async def _run_load(args: argparse.Namespace) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
+    if args.require_real_connector:
+        provider = (os.getenv("MEETING_CONNECTOR_PROVIDER", "") or "").strip().lower()
+        if provider != "sberjazz":
+            raise RuntimeError(
+                "require_real_connector_failed: MEETING_CONNECTOR_PROVIDER is not sberjazz"
+            )
     ws_base_url = (args.ws_base_url or _http_to_ws_base(base_url)).rstrip("/")
     run_id = int(time.time())
 

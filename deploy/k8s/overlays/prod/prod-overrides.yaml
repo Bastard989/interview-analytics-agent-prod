@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-stt
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-stt
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-enhancer
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-enhancer
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-analytics
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-analytics
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-delivery
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-delivery
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-retention
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-retention
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker-reconciliation
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-reconciliation
+          imagePullPolicy: Always
