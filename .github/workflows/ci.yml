@@ -112,7 +112,7 @@ jobs:
 
       - name: Alert routing smoke (observability profile)
         run: |
-          docker compose --profile observability up -d alert-webhook-sink alertmanager
+          docker compose --profile observability up -d alert-webhook-sink alert-relay alertmanager
           docker compose run --rm -T \
             -v "$(pwd):/app" \
             -e PYTHONPATH=/app:/app/src \

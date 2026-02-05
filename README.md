@@ -127,6 +127,7 @@ SberJazz HTTP resilience:
 - Prometheus: `http://localhost:9090`
 - Alertmanager: `http://localhost:9093`
 - Grafana: `http://localhost:3000`
+- Alert relay: `http://localhost:9081` (`/health`, `/webhook/{default|warning|critical}`)
 - Alert webhook sink (dev/stage): `http://localhost:9080` (`/stats`, `/events`, `/reset`)
 
 Дополнительные connector-метрики:
@@ -141,9 +142,14 @@ SberJazz HTTP resilience:
 
 Alert routing:
 - Alertmanager использует severity-маршрутизацию (`default` / `warning` / `critical`).
-- В dev/stage маршрутизация идет во внутренний webhook sink (`alert-webhook-sink`).
-- Для production замени webhook receiver URL в `ops/alertmanager.yml` на внешние каналы
-  (Slack/PagerDuty/incident hub).
+- Alertmanager отправляет события в `alert-relay`, а relay маршрутизирует их дальше.
+- В dev/stage relay по умолчанию отправляет во внутренний sink (`alert-webhook-sink`).
+- Для production задай внешние URL через ENV:
+  `ALERT_RELAY_DEFAULT_TARGET_URL`, `ALERT_RELAY_WARNING_TARGET_URL`,
+  `ALERT_RELAY_CRITICAL_TARGET_URL`.
+- Опционально можно включить shadow-доставку:
+  `ALERT_RELAY_DEFAULT_SHADOW_URL`, `ALERT_RELAY_WARNING_SHADOW_URL`,
+  `ALERT_RELAY_CRITICAL_SHADOW_URL`.
 
 ## CI
 
@@ -153,7 +159,7 @@ GitHub Actions запускает:
 - compose build + healthcheck,
 - unit tests + lint + smoke cycle,
 - OpenAPI contract check,
-- alert routing smoke (`warning`/`critical` delivery через Alertmanager -> webhook sink).
+- alert routing smoke (`warning`/`critical` delivery через Alertmanager -> alert-relay -> webhook sink).
 
 Отдельный workflow `Performance Smoke` (nightly + manual):
 - поднимает стек в `STT_PROVIDER=mock`,

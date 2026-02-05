@@ -355,8 +355,28 @@ services:
     ports:
       - "9093:9093"
     depends_on:
-      alert-webhook-sink:
+      alert-relay:
         condition: service_started
+    restart: unless-stopped
+
+  alert-relay:
+    build:
+      context: .
+    profiles: ["observability"]
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      ALERT_RELAY_DEFAULT_TARGET_URL: ${ALERT_RELAY_DEFAULT_TARGET_URL:-http://alert-webhook-sink:9080/webhook?channel=default}
+      ALERT_RELAY_WARNING_TARGET_URL: ${ALERT_RELAY_WARNING_TARGET_URL:-http://alert-webhook-sink:9080/webhook?channel=warning}
+      ALERT_RELAY_CRITICAL_TARGET_URL: ${ALERT_RELAY_CRITICAL_TARGET_URL:-http://alert-webhook-sink:9080/webhook?channel=critical}
+      ALERT_RELAY_DEFAULT_SHADOW_URL: ${ALERT_RELAY_DEFAULT_SHADOW_URL:-}
+      ALERT_RELAY_WARNING_SHADOW_URL: ${ALERT_RELAY_WARNING_SHADOW_URL:-}
+      ALERT_RELAY_CRITICAL_SHADOW_URL: ${ALERT_RELAY_CRITICAL_SHADOW_URL:-}
+      ALERT_RELAY_TIMEOUT_SEC: ${ALERT_RELAY_TIMEOUT_SEC:-5}
+      ALERT_RELAY_FAIL_ON_ERROR: ${ALERT_RELAY_FAIL_ON_ERROR:-true}
+    command: ["python3", "-m", "apps.alert_relay.main"]
+    ports:
+      - "9081:9081"
     restart: unless-stopped
 
   alert-webhook-sink:

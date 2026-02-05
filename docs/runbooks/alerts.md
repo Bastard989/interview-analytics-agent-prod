@@ -4,8 +4,13 @@
 
 1. Поднять observability-профиль: `docker compose --profile observability up -d`.
 2. Запустить smoke: `make alerts-smoke`.
-3. Проверить sink статистику: `curl -fsS http://localhost:9080/stats`.
-4. Ожидаемо: минимум 1 `warning` и 1 `critical` событие.
+3. Проверить relay health: `curl -fsS http://localhost:9081/health`.
+4. Проверить sink статистику: `curl -fsS http://localhost:9080/stats`.
+5. Ожидаемо: минимум 1 `warning` и 1 `critical` событие.
+
+Для production routing:
+- Укажи внешние webhook URL через `ALERT_RELAY_*_TARGET_URL`.
+- При необходимости включи shadow-доставку через `ALERT_RELAY_*_SHADOW_URL`.
 
 ## ApiGatewayDown
 
