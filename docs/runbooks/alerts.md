@@ -11,6 +11,8 @@
 Для production routing:
 - Укажи внешние webhook URL через `ALERT_RELAY_*_TARGET_URL`.
 - При необходимости включи shadow-доставку через `ALERT_RELAY_*_SHADOW_URL`.
+- Для нестабильных внешних каналов настрой retry relay:
+  `ALERT_RELAY_RETRIES`, `ALERT_RELAY_RETRY_BACKOFF_MS`, `ALERT_RELAY_RETRY_STATUSES`.
 
 ## ApiGatewayDown
 

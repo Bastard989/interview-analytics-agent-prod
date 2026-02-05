@@ -10,6 +10,7 @@ Alert relay service.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import requests
@@ -34,6 +35,35 @@ def _timeout_sec() -> int:
         return 5
 
 
+def _retry_count() -> int:
+    try:
+        return max(0, int(os.getenv("ALERT_RELAY_RETRIES", "2")))
+    except Exception:
+        return 2
+
+
+def _retry_backoff_sec() -> float:
+    try:
+        ms = max(0, int(os.getenv("ALERT_RELAY_RETRY_BACKOFF_MS", "300")))
+    except Exception:
+        ms = 300
+    return ms / 1000.0
+
+
+def _retry_statuses() -> set[int]:
+    raw = os.getenv("ALERT_RELAY_RETRY_STATUSES", "408,409,425,429,500,502,503,504") or ""
+    out: set[int] = set()
+    for token in raw.split(","):
+        item = token.strip()
+        if not item:
+            continue
+        try:
+            out.add(int(item))
+        except ValueError:
+            continue
+    return out
+
+
 def _fail_on_error() -> bool:
     return _read_bool("ALERT_RELAY_FAIL_ON_ERROR", True)
 
@@ -54,8 +84,27 @@ def _shadow_url(channel: str) -> str:
 
 
 def _forward(*, url: str, payload: dict[str, Any]) -> None:
-    resp = requests.post(url, json=payload, timeout=_timeout_sec())
-    resp.raise_for_status()
+    attempts = _retry_count() + 1
+    retry_statuses = _retry_statuses()
+    backoff_sec = _retry_backoff_sec()
+
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = requests.post(url, json=payload, timeout=_timeout_sec())
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt < attempts:
+                if backoff_sec > 0:
+                    time.sleep(backoff_sec * attempt)
+                continue
+            raise
+
+        if resp.status_code >= 400:
+            if resp.status_code in retry_statuses and attempt < attempts:
+                if backoff_sec > 0:
+                    time.sleep(backoff_sec * attempt)
+                continue
+            resp.raise_for_status()
+        return
 
 
 @app.get("/health")
@@ -70,6 +119,9 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "fail_on_error": _fail_on_error(),
         "timeout_sec": _timeout_sec(),
+        "retries": _retry_count(),
+        "retry_backoff_sec": _retry_backoff_sec(),
+        "retry_statuses": sorted(_retry_statuses()),
         "channels": channels,
     }
 

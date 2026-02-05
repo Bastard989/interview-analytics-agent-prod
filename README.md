@@ -150,6 +150,9 @@ Alert routing:
 - Опционально можно включить shadow-доставку:
   `ALERT_RELAY_DEFAULT_SHADOW_URL`, `ALERT_RELAY_WARNING_SHADOW_URL`,
   `ALERT_RELAY_CRITICAL_SHADOW_URL`.
+- Для устойчивости можно настроить retry-политику relay:
+  `ALERT_RELAY_RETRIES`, `ALERT_RELAY_RETRY_BACKOFF_MS`,
+  `ALERT_RELAY_RETRY_STATUSES` (по умолчанию 408/409/425/429/5xx).
 
 ## CI
 
