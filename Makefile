@@ -9,7 +9,7 @@ PYTHON ?= python3
 	compose-up compose-down \
 	fmt lint fix test storage-smoke \
 	cycle cycle-autofix \
-	openapi-gen openapi-check release-check alerts-rules-check alerts-smoke alert-relay-metrics-smoke alert-relay-failure-smoke alert-relay-retry-guardrail load-guardrail ws-guardrail
+	openapi-gen openapi-check release-check alerts-rules-check alerts-smoke alert-relay-metrics-smoke alert-relay-failure-smoke alert-relay-retry-guardrail load-guardrail ws-guardrail perf-guardrail-lite
 
 doctor:
 	@echo "== docker ==" && docker version >/dev/null && echo "OK"
@@ -107,3 +107,31 @@ load-guardrail:
 
 ws-guardrail:
 	$(PYTHON) tools/ws_contours_guardrail.py
+
+perf-guardrail-lite:
+	$(PYTHON) tools/realtime_load_guardrail.py \
+		--base-url http://127.0.0.1:8010 \
+		--user-key dev-user-key \
+		--meetings 8 \
+		--concurrency 4 \
+		--chunks-per-meeting 2 \
+		--report-timeout-sec 90 \
+		--max-failure-rate 0.15 \
+		--max-p95-ingest-ms 600 \
+		--max-p95-e2e-ms 20000 \
+		--min-throughput-meetings-per-min 6 \
+		--report-json reports/realtime_load_guardrail_ci.json
+	$(PYTHON) tools/ws_contours_guardrail.py \
+		--base-url http://127.0.0.1:8010 \
+		--ws-base-url ws://127.0.0.1:8010 \
+		--user-key dev-user-key \
+		--service-key dev-service-key \
+		--meetings-per-contour 4 \
+		--concurrency 4 \
+		--chunks-per-meeting 2 \
+		--report-timeout-sec 90 \
+		--max-failure-rate 0.15 \
+		--max-p95-ws-send-ms 200 \
+		--max-p95-e2e-ms 20000 \
+		--strict-split-check \
+		--report-json reports/ws_contours_guardrail_ci.json

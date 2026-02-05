@@ -165,6 +165,7 @@ GitHub Actions запускает:
 - compose build + healthcheck,
 - unit tests + lint + smoke cycle,
 - OpenAPI contract check,
+- pipeline latency guardrail (light) на `STT_PROVIDER=mock` (`realtime_load_guardrail` + `ws_contours_guardrail`),
 - alert rules check (`promtool` + валидация runbook anchors),
 - alert routing smoke (`warning`/`critical` delivery через Alertmanager -> alert-relay -> webhook sink),
 - alert relay metrics smoke (`/metrics` + рост `agent_alert_relay_forward_total`),
@@ -179,12 +180,13 @@ GitHub Actions запускает:
 Release automation:
 - workflow `Release` запускается на тегах формата `v*.*.*`,
 - перед сборкой проверяет release policy (`tag == project.version`, валидный `openapi/openapi.json`),
-- повторно выполняет build/test/lint/smoke/openapi-check + alert routing smoke,
+- повторно выполняет build/test/lint/smoke/openapi-check + pipeline latency guardrail + alert routing smoke,
 - собирает release assets (`sdist`, `wheel`, `openapi.json`, `SHA256SUMS`),
 - публикует GitHub Release с автогенерируемыми release notes и provenance attestation.
 
 Локальная проверка release policy:
 - `make release-check`
+- `make perf-guardrail-lite` (быстрый локальный performance gate)
 
 ## Runbooks
 

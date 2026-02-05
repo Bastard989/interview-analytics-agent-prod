@@ -9,9 +9,20 @@
    - если нужно падать при недоступности admin-checks: добавь `--strict-admin-checks`.
 3. Запустить WS guardrail:
    `python3 tools/ws_contours_guardrail.py --base-url http://127.0.0.1:8010 --ws-base-url ws://127.0.0.1:8010 --user-key dev-user-key --service-key dev-service-key --strict-split-check`
-4. Проверить результат:
+4. Быстрый профиль как в CI:
+   `make perf-guardrail-lite`
+5. Проверить результат:
    - stdout: `load guardrail OK|FAILED`
    - отчеты: `reports/realtime_load_guardrail.json`, `reports/ws_contours_guardrail.json`
+
+## CI latency gate (light)
+
+- В `CI` и `Release` используется облегченный performance gate на `STT_PROVIDER=mock`.
+- Проверяются `realtime_load_guardrail` и `ws_contours_guardrail` с уменьшенной нагрузкой
+  (быстрый fail-fast на явный latency regression).
+- В light-профиле проверка `total_dlq_depth` не используется (чтобы не зависеть от admin queue health).
+- Отчеты сохраняются в:
+  `reports/realtime_load_guardrail_ci.json`, `reports/ws_contours_guardrail_ci.json`.
 
 ## Что проверяется
 

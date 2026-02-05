@@ -17,6 +17,14 @@ permissions:
 jobs:
   verify-release:
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: dev
+      AUTH_MODE: api_key
+      API_KEYS: dev-user-key
+      SERVICE_API_KEYS: dev-service-key
+      STT_PROVIDER: mock
+      LLM_ENABLED: "false"
+      MEETING_CONNECTOR_PROVIDER: sberjazz_mock
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,6 +71,43 @@ jobs:
 
       - name: OpenAPI contract check
         run: make openapi-check
+
+      - name: Pipeline latency guardrail (release)
+        run: |
+          docker compose run --rm -T \
+            -v "$(pwd):/app" \
+            -e PYTHONPATH=/app:/app/src \
+            api-gateway \
+            python tools/realtime_load_guardrail.py \
+            --base-url http://api-gateway:8010 \
+            --user-key dev-user-key \
+            --meetings 12 \
+            --concurrency 6 \
+            --chunks-per-meeting 2 \
+            --report-timeout-sec 120 \
+            --max-failure-rate 0.10 \
+            --max-p95-ingest-ms 600 \
+            --max-p95-e2e-ms 20000 \
+            --min-throughput-meetings-per-min 8 \
+            --report-json reports/realtime_load_guardrail_release.json
+          docker compose run --rm -T \
+            -v "$(pwd):/app" \
+            -e PYTHONPATH=/app:/app/src \
+            api-gateway \
+            python tools/ws_contours_guardrail.py \
+            --base-url http://api-gateway:8010 \
+            --ws-base-url ws://api-gateway:8010 \
+            --user-key dev-user-key \
+            --service-key dev-service-key \
+            --meetings-per-contour 6 \
+            --concurrency 6 \
+            --chunks-per-meeting 2 \
+            --report-timeout-sec 120 \
+            --max-failure-rate 0.10 \
+            --max-p95-ws-send-ms 200 \
+            --max-p95-e2e-ms 20000 \
+            --strict-split-check \
+            --report-json reports/ws_contours_guardrail_release.json
 
       - name: Alert routing smoke (observability profile)
         run: |
