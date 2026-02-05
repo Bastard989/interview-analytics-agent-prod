@@ -61,6 +61,8 @@ HTTP ingest контуры:
 - `AUTH_MODE=jwt` — JWT/OIDC + опциональный fallback на service API key
 - В `APP_ENV=prod` при `AUTH_REQUIRE_JWT_IN_PROD=true` требуется `AUTH_MODE=jwt`.
 - В `APP_ENV=prod` fallback на service API key автоматически отключается (только Bearer JWT).
+- Для секретов поддерживаются `*_FILE` переменные (например `API_KEYS_FILE`, `SERVICE_API_KEYS_FILE`,
+  `JWT_SHARED_SECRET_FILE`, `SBERJAZZ_API_TOKEN_FILE`).
 
 ## Внутренний Admin API (только service)
 

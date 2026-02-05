@@ -8,6 +8,10 @@
 
 from __future__ import annotations
 
+import logging
+import os
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -206,6 +210,59 @@ class Settings(BaseSettings):
     log_format: str = Field(default="json", alias="LOG_FORMAT")  # json|text
     security_audit_db_enabled: bool = Field(default=True, alias="SECURITY_AUDIT_DB_ENABLED")
     readiness_fail_fast_in_prod: bool = Field(default=True, alias="READINESS_FAIL_FAST_IN_PROD")
+
+    def model_post_init(self, __context) -> None:
+        _apply_file_overrides(self)
+
+
+_CSV_ENV_FIELDS = {
+    "API_KEYS",
+    "SERVICE_API_KEYS",
+    "JWT_SERVICE_CLAIM_VALUES",
+    "JWT_SERVICE_ALLOWED_ROLES",
+    "JWT_SERVICE_REQUIRED_SCOPES_ADMIN_READ",
+    "JWT_SERVICE_REQUIRED_SCOPES_ADMIN_WRITE",
+    "JWT_SERVICE_REQUIRED_SCOPES_WS_INTERNAL",
+    "SBERJAZZ_HTTP_RETRY_STATUSES",
+    "ALERT_RELAY_RETRY_STATUSES",
+}
+
+
+def _normalize_file_value(env_key: str, raw: str) -> str:
+    value = (raw or "").strip()
+    if env_key in _CSV_ENV_FIELDS and "\n" in value and "," not in value:
+        parts = [p.strip() for p in value.splitlines() if p.strip()]
+        return ",".join(parts)
+    return value
+
+
+def _apply_file_overrides(settings: Settings) -> None:
+    alias_to_field = {}
+    for name, field in settings.model_fields.items():
+        alias = field.alias or name
+        alias_to_field[str(alias)] = name
+        alias_to_field[str(name)] = name
+
+    for key, path in os.environ.items():
+        if not key.endswith("_FILE"):
+            continue
+        base = key[: -len("_FILE")]
+        target = alias_to_field.get(base)
+        if not target:
+            continue
+        file_path = (path or "").strip()
+        if not file_path:
+            continue
+        try:
+            raw = Path(file_path).read_text(encoding="utf-8")
+        except Exception as e:
+            logging.getLogger("interview-analytics-agent").error(
+                "config_file_read_failed",
+                extra={"payload": {"env_key": key, "path": file_path, "error": str(e)[:200]}},
+            )
+            raise RuntimeError(f"Failed to read {key} from {file_path}") from e
+        value = _normalize_file_value(base, raw)
+        setattr(settings, target, value)
 
 
 _SETTINGS = Settings()
