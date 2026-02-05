@@ -8,8 +8,11 @@
 
 from __future__ import annotations
 
+import socket
 import time
 from typing import Any
+
+from urllib3.util import connection as urllib3_connection
 
 import requests
 
@@ -19,6 +22,16 @@ from interview_analytics_agent.common.logging import get_project_logger
 from interview_analytics_agent.connectors.base import MeetingConnector, MeetingContext
 
 log = get_project_logger()
+
+_FORCE_IPV4_ENABLED = False
+
+
+def _enable_force_ipv4() -> None:
+    global _FORCE_IPV4_ENABLED
+    if _FORCE_IPV4_ENABLED:
+        return
+    urllib3_connection.allowed_gai_family = lambda: socket.AF_INET
+    _FORCE_IPV4_ENABLED = True
 
 
 class SaluteJazzConnector(MeetingConnector):
@@ -30,6 +43,8 @@ class SaluteJazzConnector(MeetingConnector):
         timeout_sec: int | None = None,
     ) -> None:
         s = get_settings()
+        if bool(getattr(s, "sberjazz_force_ipv4", False)):
+            _enable_force_ipv4()
         self.base_url = (base_url or s.sberjazz_api_base or "").rstrip("/")
         self.api_token = (api_token or s.sberjazz_api_token or "").strip()
         self.timeout_sec = int(timeout_sec if timeout_sec is not None else s.sberjazz_timeout_sec)

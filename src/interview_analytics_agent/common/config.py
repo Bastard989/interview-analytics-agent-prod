@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     meeting_auto_join_on_start: bool = Field(default=False, alias="MEETING_AUTO_JOIN_ON_START")
     sberjazz_api_base: str | None = Field(default=None, alias="SBERJAZZ_API_BASE")
     sberjazz_api_token: str | None = Field(default=None, alias="SBERJAZZ_API_TOKEN")
+    sberjazz_force_ipv4: bool = Field(default=False, alias="SBERJAZZ_FORCE_IPV4")
     sberjazz_timeout_sec: int = Field(default=10, alias="SBERJAZZ_TIMEOUT_SEC")
     sberjazz_http_retries: int = Field(default=2, alias="SBERJAZZ_HTTP_RETRIES")
     sberjazz_http_retry_backoff_ms: int = Field(default=300, alias="SBERJAZZ_HTTP_RETRY_BACKOFF_MS")

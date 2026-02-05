@@ -208,6 +208,8 @@ SberJazz HTTP resilience:
   (`SBERJAZZ_REQUIRE_HTTPS_IN_PROD=true`).
 - Startup probe для real SberJazz в prod:
   `SBERJAZZ_STARTUP_PROBE_ENABLED=true`, `SBERJAZZ_STARTUP_PROBE_FAIL_FAST_IN_PROD=true`.
+- Если есть проблемы с сетью/IPv6, можно форсировать IPv4:
+  `SBERJAZZ_FORCE_IPV4=true`.
 
 ## Tracing (OTEL)
 
