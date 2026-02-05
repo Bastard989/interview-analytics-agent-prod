@@ -130,6 +130,29 @@ jobs:
             python tools/alert_relay_metrics_smoke.py \
             --relay-url http://alert-relay:9081 \
             --sink-url http://alert-webhook-sink:9080
+          ALERT_RELAY_FAIL_ON_ERROR=true docker compose --profile observability up -d --force-recreate alert-relay
+          docker compose stop alert-webhook-sink
+          docker compose run --rm -T \
+            -v "$(pwd):/app" \
+            -e PYTHONPATH=/app:/app/src \
+            api-gateway \
+            python tools/alert_relay_failure_policy_smoke.py \
+            --relay-url http://alert-relay:9081 \
+            --expected-status 502 \
+            --expect-fail-on-error true
+          docker compose --profile observability up -d alert-webhook-sink
+          ALERT_RELAY_FAIL_ON_ERROR=false docker compose --profile observability up -d --force-recreate alert-relay
+          docker compose stop alert-webhook-sink
+          docker compose run --rm -T \
+            -v "$(pwd):/app" \
+            -e PYTHONPATH=/app:/app/src \
+            api-gateway \
+            python tools/alert_relay_failure_policy_smoke.py \
+            --relay-url http://alert-relay:9081 \
+            --expected-status 200 \
+            --expect-fail-on-error false
+          docker compose --profile observability up -d alert-webhook-sink
+          ALERT_RELAY_FAIL_ON_ERROR=true docker compose --profile observability up -d --force-recreate alert-relay
 
       - name: Upload cycle reports
         if: always()
