@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from datetime import UTC, datetime
+
+from interview_analytics_agent.common.time import utc_now
 
 
 def new_uuid() -> str:
@@ -23,7 +24,7 @@ def new_event_id(prefix: str = "evt") -> str:
     Идентификатор события (лог/очереди/трассировка).
     Формат: <prefix>_<UTCYYYYMMDDHHMMSS>_<rand>
     """
-    ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    ts = utc_now().strftime("%Y%m%d%H%M%S")
     rnd = secrets.token_hex(6)
     return f"{prefix}_{ts}_{rnd}"
 
@@ -33,7 +34,7 @@ def new_meeting_id(prefix: str = "mtg") -> str:
     Идентификатор встречи.
     Формат: <prefix>_<UTCYYYYMMDDHHMMSS>_<rand>
     """
-    ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    ts = utc_now().strftime("%Y%m%d%H%M%S")
     rnd = secrets.token_hex(5)
     return f"{prefix}_{ts}_{rnd}"
 

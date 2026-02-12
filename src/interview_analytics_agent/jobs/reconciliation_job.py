@@ -8,7 +8,7 @@ Reconciliation job.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.logging import get_project_logger
@@ -17,6 +17,7 @@ from interview_analytics_agent.common.metrics import (
     record_sberjazz_live_pull_result,
     record_sberjazz_reconcile_result,
 )
+from interview_analytics_agent.common.time import utc_now
 from interview_analytics_agent.services.sberjazz_service import (
     SberJazzReconcileResult,
     get_sberjazz_circuit_breaker_state,
@@ -50,7 +51,7 @@ def _maybe_auto_reset_circuit_breaker() -> None:
     opened = _parse_opened_at(state.opened_at)
     min_age_sec = max(0, int(getattr(settings, "sberjazz_cb_auto_reset_min_age_sec", 30)))
     if opened is not None:
-        age_sec = max(0, int((datetime.now(UTC) - opened).total_seconds()))
+        age_sec = max(0, int((utc_now() - opened).total_seconds()))
         if age_sec < min_age_sec:
             log.info(
                 "reconciliation_cb_auto_reset_skipped",

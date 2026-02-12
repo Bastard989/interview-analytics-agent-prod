@@ -12,9 +12,8 @@ import socket
 import time
 from typing import Any
 
-from urllib3.util import connection as urllib3_connection
-
 import requests
+from urllib3.util import connection as urllib3_connection
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, ProviderError

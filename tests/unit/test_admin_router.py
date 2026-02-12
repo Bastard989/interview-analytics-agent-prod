@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.api_gateway.main import app
 from interview_analytics_agent.common.config import get_settings
+from interview_analytics_agent.common.time import UTC
 
 jwt = pytest.importorskip("jwt")
 

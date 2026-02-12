@@ -30,7 +30,7 @@ def _tenant_context_key() -> str:
 def _normalize_tenant_id(value: Any) -> str | None:
     if value is None:
         return None
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list | tuple | set):
         for item in value:
             if item is None:
                 continue

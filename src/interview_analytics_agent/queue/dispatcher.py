@@ -9,11 +9,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.ids import new_event_id
 from interview_analytics_agent.common.logging import get_project_logger
+from interview_analytics_agent.common.time import utc_now_iso
 from interview_analytics_agent.common.tracing import inject_trace_context
 from interview_analytics_agent.services.local_pipeline import process_chunk_inline
 
@@ -35,7 +34,7 @@ Q_DLQ = "q:dlq"
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return utc_now_iso()
 
 
 def enqueue_stt(*, meeting_id: str, chunk_seq: int, blob_key: str) -> str:

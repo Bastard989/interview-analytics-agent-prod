@@ -32,6 +32,7 @@ from interview_analytics_agent.storage.repositories import MeetingRepository
 log = get_project_logger()
 
 router = APIRouter()
+AUTH_DEP = Depends(auth_dep)
 
 
 def _should_auto_join(req: MeetingStartRequest) -> bool:
@@ -51,7 +52,7 @@ def _should_auto_join(req: MeetingStartRequest) -> bool:
 @router.post("/meetings/start", response_model=MeetingStartResponse)
 def start_meeting(
     req: MeetingStartRequest,
-    ctx: AuthContext = Depends(auth_dep),
+    ctx: AuthContext = AUTH_DEP,
 ) -> MeetingStartResponse:
     connector_auto_join = _should_auto_join(req)
     connector_provider: str | None = None
@@ -91,7 +92,7 @@ def start_meeting(
 @router.get("/meetings/{meeting_id}", response_model=MeetingGetResponse)
 def get_meeting(
     meeting_id: str,
-    ctx: AuthContext = Depends(auth_dep),
+    ctx: AuthContext = AUTH_DEP,
 ) -> MeetingGetResponse:
     with db_session() as s:
         repo = MeetingRepository(s)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from apps.api_gateway.deps import service_auth_dep, service_auth_read_dep, service_auth_write_dep
 from interview_analytics_agent.common.config import get_settings
+from interview_analytics_agent.common.time import UTC
 
 jwt = pytest.importorskip("jwt")
 

@@ -13,12 +13,13 @@ import json
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import uuid4
 
 from interview_analytics_agent.common.config import get_settings
 from interview_analytics_agent.common.errors import ErrCode, ProviderError
 from interview_analytics_agent.common.logging import get_project_logger
+from interview_analytics_agent.common.time import UTC, utc_now
 from interview_analytics_agent.common.tracing import start_trace
 from interview_analytics_agent.connectors.base import MeetingConnector
 from interview_analytics_agent.connectors.salutejazz.adapter import SaluteJazzConnector
@@ -86,7 +87,7 @@ class SberJazzLiveChunk:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return utc_now().isoformat()
 
 
 def _resolve_connector() -> tuple[str, MeetingConnector]:
@@ -407,7 +408,7 @@ def _before_connector_call(operation: str) -> None:
         return
 
     opened_at = _parse_dt(state.opened_at or _now_iso())
-    age_sec = max(0, int((datetime.now(UTC) - opened_at).total_seconds()))
+    age_sec = max(0, int((utc_now() - opened_at).total_seconds()))
     cooldown = _cb_open_sec()
     if age_sec < cooldown:
         raise ProviderError(
@@ -490,7 +491,7 @@ def _join_sberjazz_meeting_impl(meeting_id: str, *, force: bool = False) -> Sber
     _before_connector_call("join")
     previous = get_sberjazz_meeting_state(meeting_id)
     if previous.connected and not force:
-        age_sec = max(0, int((datetime.now(UTC) - _parse_dt(previous.updated_at)).total_seconds()))
+        age_sec = max(0, int((utc_now() - _parse_dt(previous.updated_at)).total_seconds()))
         ttl = _join_idempotent_ttl_sec()
         if age_sec <= ttl:
             state = SberJazzSessionState(
@@ -680,7 +681,7 @@ class SberJazzReconcileResult:
 
 def reconcile_sberjazz_sessions(limit: int = 200) -> SberJazzReconcileResult:
     stale_threshold_sec = max(30, int(getattr(get_settings(), "sberjazz_reconcile_stale_sec", 900)))
-    now = datetime.now(UTC)
+    now = utc_now()
     scanned = 0
     stale = 0
     reconnected = 0

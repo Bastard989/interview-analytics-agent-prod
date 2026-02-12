@@ -8,14 +8,16 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import datetime as dt
+
+UTC = getattr(dt, "UTC", dt.timezone.utc)  # noqa: UP017
 
 
-def utc_now() -> datetime:
+def utc_now() -> dt.datetime:
     """
     Текущее время в UTC (datetime).
     """
-    return datetime.now(UTC)
+    return dt.datetime.now(UTC)
 
 
 def utc_now_iso() -> str:

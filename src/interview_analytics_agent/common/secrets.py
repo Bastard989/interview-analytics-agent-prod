@@ -11,7 +11,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
 
 import requests
 
@@ -51,7 +50,7 @@ def _parse_field_map(raw: str | None) -> dict[str, str]:
             continue
         if "=" not in item:
             continue
-        env_key, secret_key = [p.strip() for p in item.split("=", 1)]
+        env_key, secret_key = (p.strip() for p in item.split("=", 1))
         if env_key and secret_key:
             mapping[env_key] = secret_key
     return mapping
@@ -82,10 +81,7 @@ def _load_vault() -> None:
     if version not in {"1", "2"}:
         raise RuntimeError("VAULT_KV_VERSION must be '1' or '2'")
 
-    if version == "2":
-        url = f"{addr}/v1/{mount}/data/{path}"
-    else:
-        url = f"{addr}/v1/{mount}/{path}"
+    url = f"{addr}/v1/{mount}/data/{path}" if version == "2" else f"{addr}/v1/{mount}/{path}"
 
     try:
         resp = requests.get(
@@ -117,7 +113,7 @@ def _load_vault() -> None:
         value = secret_data.get(secret_key)
         if value is None:
             continue
-        if isinstance(value, (dict, list)):
+        if isinstance(value, dict | list):
             os.environ[env_key] = json.dumps(value)
         else:
             os.environ[env_key] = str(value)
