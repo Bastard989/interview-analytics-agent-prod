@@ -7,7 +7,7 @@ PYTHON ?= python3
 .PHONY: \
 	doctor up down ps logs migrate smoke reset-db \
 	compose-up compose-down \
-	fmt lint fix test storage-smoke \
+	fmt lint fix test storage-smoke quick-record \
 	cycle cycle-autofix \
 	openapi-gen openapi-check release-check alerts-rules-check alerts-smoke alert-relay-metrics-smoke alert-relay-failure-smoke alert-relay-retry-guardrail load-guardrail ws-guardrail perf-guardrail-lite e2e-connector-live e2e-connector-real
 
@@ -63,6 +63,10 @@ test:
 
 storage-smoke:
 	$(PYTHON) tools/storage_failover_smoke.py
+
+quick-record:
+	@test -n "$(URL)" || (echo "Usage: make quick-record URL='https://meeting-link'"; exit 1)
+	$(PYTHON) scripts/quick_record_meeting.py --url "$(URL)"
 
 cycle:
 	$(PYTHON) tools/ci_cycle.py

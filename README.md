@@ -16,6 +16,28 @@ Production-ориентированный backend для транскрибац�
 - `API_KEYS=dev-user-key`
 - `SERVICE_API_KEYS=dev-service-key`
 
+## Quick Recorder (agent2)
+
+Быстрый режим записи видеовстречи в один скрипт:
+- открывает ссылку встречи;
+- пишет системный звук сегментами с overlap;
+- собирает финальный `mp3`;
+- опционально делает локальную `whisper`-транскрибацию;
+- опционально отправляет запись в `/v1` пайплайн (start -> chunk -> report);
+- опционально отправляет summary email через ваш SMTP.
+
+Базовый запуск:
+- `python3 scripts/quick_record_meeting.py --url "https://..."`
+
+Авто-стоп через 10 минут + транскрипция:
+- `python3 scripts/quick_record_meeting.py --url "https://..." --duration-sec 600 --transcribe`
+
+Загрузка в API пайплайн агента:
+- `python3 scripts/quick_record_meeting.py --url "https://..." --upload-to-agent --agent-api-key dev-user-key`
+
+Через Makefile:
+- `make quick-record URL="https://..."`
+
 ## E2E Smoke
 
 - `python3 tools/e2e_local.py`
