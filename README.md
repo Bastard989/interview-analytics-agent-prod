@@ -1,54 +1,101 @@
-# Interview Analytics Agent (script-first)
+# Interview Analytics Agent
 
-Агент для записи интервью/встреч по ссылке и генерации понятной аналитики для сеньоров, которые не присутствовали на звонке.
+Script-first агент для записи интервью/встреч и подготовки аналитики для тех, кто не присутствовал на звонке.
 
-## Что делает агент
+## Что умеет агент
 
 - записывает встречу в `mp3`;
 - делает транскрипт (опционально);
-- строит отчеты (`report.json`, `report.txt`);
-- может отправить запись в API-пайплайн для расширенной аналитики (`scorecard`, `decision`, `senior brief`, `comparison`);
-- поддерживает foreground и background режимы;
-- корректно завершает запись через graceful stop.
+- строит локальные отчеты: `report.json` и `report.txt`;
+- может отправить запись в API-пайплайн для расширенной аналитики:
+  - `scorecard`,
+  - `decision`,
+  - `senior brief`,
+  - `comparison`;
+- работает в foreground и background режимах;
+- поддерживает graceful stop, чтобы не терять артефакты при остановке.
 
-## Быстрый старт (5 минут)
+## Быстрый старт
 
 ```bash
-cd "/Users/kirill/Documents/New project/interview-analytics-agent-prod2"
+git clone <your-repo-url>
+cd interview-analytics-agent-prod2
 ```
 
-1. Установи зависимости и подготовь окружение:
+### 1) Подготовка окружения
 
 ```bash
 make setup-local
 ```
 
-2. Запусти API (терминал №1):
+Что делает команда:
+- создает `.venv`;
+- устанавливает зависимости из `requirements.txt`;
+- создает `.env` из `.env.example` (если `.env` еще нет);
+- проверяет наличие `ffmpeg`.
+
+### 2) Запуск API
 
 ```bash
 make api-local
 ```
 
-3. Запусти запись (терминал №2):
+Проверка:
+- `http://127.0.0.1:8010/health`
+
+### 3) Запуск записи встречи
+
+Foreground (простой вариант):
 
 ```bash
 make agent-run URL="https://your-meeting-link" DURATION_SEC=900
 ```
 
-## Основные команды
-
-Из корня проекта:
+Background:
 
 ```bash
-# foreground (блокирующий режим)
-make agent-run URL="https://..." DURATION_SEC=900
+make agent-start URL="https://your-meeting-link" DURATION_SEC=900
+make agent-status
+make agent-stop
+```
 
-# background
+## Как работает агент во время записи
+
+Foreground (`agent-run`):
+- запись идет в текущем терминале;
+- после завершения сразу виден итог.
+
+Background (`agent-start`):
+- запись идет в отдельном процессе;
+- `agent-status` показывает состояние и последние логи;
+- `agent-stop` сначала выполняет корректную остановку через stop-flag,
+  и только при таймауте делает signal-based остановку.
+
+## Что на выходе
+
+Артефакты по умолчанию сохраняются в `recordings/`:
+
+- `<timestamp>.mp3`
+- `<timestamp>.txt` (если включена транскрибация)
+- `<timestamp>.report.json`
+- `<timestamp>.report.txt`
+
+## Команды (сводно)
+
+```bash
+# подготовка
+make setup-local
+
+# API
+make api-local
+
+# запись
+make agent-run URL="https://..." DURATION_SEC=900
 make agent-start URL="https://..." DURATION_SEC=900
 make agent-status
 make agent-stop
 
-# быстрый прямой запуск quick recorder
+# прямой quick recorder
 make quick-record URL="https://..."
 ```
 
@@ -61,59 +108,54 @@ make quick-record URL="https://..."
 ./scripts/agent.sh stop
 ```
 
-## Как агент ведет себя во время работы
-
-Foreground (`agent-run`):
-- команда запускает запись и держит процесс в текущем терминале;
-- после завершения сразу получаешь файлы результата.
-
-Background (`agent-start`):
-- запись идет в фоне;
-- `agent-status` показывает состояние и последние логи;
-- `agent-stop` сначала делает graceful-stop (через stop-flag), потом при таймауте отправляет сигнал.
-
-Результаты сохраняются в `recordings/`:
-- `<timestamp>.mp3`
-- `<timestamp>.txt` (если включена транскрибация)
-- `<timestamp>.report.json`
-- `<timestamp>.report.txt`
-
 ## Частые сценарии
 
-Запуск с явным устройством (macOS loopback):
+Явный выбор устройства записи:
 
 ```bash
 INPUT_DEVICE="BlackHole 2ch" make agent-run URL="https://..." DURATION_SEC=900
 ```
 
-Запуск с загрузкой в API:
+Загрузка записи в API-пайплайн:
 
 ```bash
-AGENT_BASE_URL="http://127.0.0.1:8010" AGENT_API_KEY="dev-user-key" make agent-start URL="https://..." DURATION_SEC=1200
+AGENT_BASE_URL="http://127.0.0.1:8010" \
+AGENT_API_KEY="your-api-key" \
+make agent-start URL="https://..." DURATION_SEC=1200
 ```
 
-## Техническая часть (для инженеров)
+## Production checklist
 
-### Ключевые компоненты
+Перед production запуском:
 
-- `scripts/setup_local.sh`: bootstrap локального окружения;
-- `scripts/agent.sh`: короткий CLI-wrapper;
-- `scripts/meeting_agent.py`: orchestration (`run/start/status/stop`);
-- `scripts/quick_record_meeting.py`: script-first запись;
-- `src/interview_analytics_agent/quick_record.py`: core quick-record логика;
-- `apps/api_gateway`: API для артефактов и аналитики.
+1. Настрой секреты и ключи в `.env`/secret manager.
+2. Установи корректный `AUTH_MODE` и production API keys/JWT.
+3. Настрой SMTP (если нужна ручная email-доставка).
+4. Проверь `ffmpeg` и аудио-устройство на хосте записи.
+5. Прогони базовые тесты и smoke.
 
-### Pipeline внутри агента
+## Техническое описание
 
-1. Preflight-check: `ffmpeg`, устройство, права записи, свободное место.
-2. Запись сегментов с overlap.
-3. Корректная финализация сегментов в итоговый `mp3`.
-4. Опциональная локальная транскрибация (`faster-whisper`).
+### Основные компоненты
+
+- `scripts/setup_local.sh` — bootstrap окружения.
+- `scripts/agent.sh` — удобный CLI wrapper.
+- `scripts/meeting_agent.py` — orchestration (`run/start/status/stop`).
+- `scripts/quick_record_meeting.py` — script-first запуск записи.
+- `src/interview_analytics_agent/quick_record.py` — core логика quick record.
+- `apps/api_gateway` — API слой для ingestion/артефактов/аналитики.
+
+### Pipeline
+
+1. Preflight-check (`ffmpeg`, устройство, права, свободное место).
+2. Захват аудио сегментами с overlap.
+3. Сборка финального `mp3`.
+4. Опциональная транскрибация (`faster-whisper`).
 5. Построение локального `report`.
 6. Опциональная отправка в `/v1` API.
-7. Опциональная ручная email-доставка артефактов.
+7. Опциональная ручная email-доставка.
 
-### Основные API ручки
+### Основные API endpoints
 
 - `POST /v1/quick-record/start`
 - `GET /v1/quick-record/status`
@@ -127,25 +169,25 @@ AGENT_BASE_URL="http://127.0.0.1:8010" AGENT_API_KEY="dev-user-key" make agent-s
 - `POST /v1/analysis/comparison`
 - `POST /v1/meetings/{meeting_id}/delivery/manual`
 
-### Полезные ENV
+### Полезные переменные окружения
 
-- `INPUT_DEVICE` — устройство захвата (например `BlackHole 2ch`)
-- `AGENT_BASE_URL` — URL локального API (обычно `http://127.0.0.1:8010`)
-- `AGENT_API_KEY` — API key для upload в API
-- `OUTPUT_DIR` — директория артефактов (по умолчанию `recordings`)
-- `TRANSCRIBE=1` — включить транскрибацию
-- `UPLOAD_TO_AGENT=1` — отправлять в API
+- `INPUT_DEVICE` — устройство захвата.
+- `AGENT_BASE_URL` — URL API.
+- `AGENT_API_KEY` — API key для upload.
+- `OUTPUT_DIR` — директория артефактов (`recordings` по умолчанию).
+- `TRANSCRIBE=1` — включить транскрибацию.
+- `UPLOAD_TO_AGENT=1` — отправлять запись в API.
 
-### Проверка работоспособности
+## Тестирование
 
 ```bash
 # unit
 python3 -m pytest tests/unit -q
 
-# script-first интеграционный тест
+# script-first integration
 python3 -m pytest tests/integration/test_script_first_agent.py -q
 
-# smoke локального API
+# local API smoke
 python3 tools/e2e_local.py
 ```
 
@@ -153,8 +195,4 @@ python3 tools/e2e_local.py
 
 - Python `3.11+`
 - `ffmpeg`
-- для macOS захвата системного звука обычно нужен loopback-девайс (например BlackHole)
-
-## Важно
-
-Проект сейчас заточен под script-first работу через терминал и ручной контроль записи/аналитики.
+- для macOS записи системного звука обычно требуется loopback device (например BlackHole)
